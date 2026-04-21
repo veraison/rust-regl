@@ -1,0 +1,18 @@
+[package]
+name = "regl"
+version = "0.1.0"
+edition = "2024"
+description = "Rust Evidence Generation Library — collects attestation evidence from TEE platforms"
+license = "Apache-2.0"
+repository = "https://github.com/veraison/rust-regl"
+keywords = ["cca", "attestation", "arm", "evidence", "tee"]
+categories = ["hardware-support", "cryptography"]
+
+[dependencies]
+thiserror = "2.0.18"
+tempfile = "3"
+
+[dev-dependencies]
+log = "0.4.29"
+env_logger = "0.11.10"
+clap = { version = "4.6.0", features = ["derive"] }
