@@ -43,3 +43,18 @@ pub trait TsmReportBuilder {
     /// emitted by TSM
     fn get_report(self) -> Result<TsmReport, TsmError>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tsm_report_default_has_empty_blobs() {
+        // TsmReport::default() must initialise all three blobs to empty — a
+        // non-empty default would silently carry stale data into callers.
+        let report = TsmReport::default();
+        assert!(report.outblob.is_empty());
+        assert!(report.auxblob.is_empty());
+        assert!(report.manifestblob.is_empty());
+    }
+}

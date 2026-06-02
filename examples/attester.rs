@@ -1,27 +1,45 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use log::{error, info};
 use regl::attesters::{Attester, cca, cca::CcaError};
 use std::fs;
+use url::Url;
 
 #[derive(Parser, Debug)]
 struct Args {
+    /// Attester backend to use.
     #[arg(short, long)]
-    attester: String,
+    attester: AttesterType,
     #[arg(short, long)]
     out: String,
 }
 
-fn create_attester(name: &str) -> Box<dyn Attester<AttesterError = CcaError>> {
-    match name {
-        "cca-tsm" => Box::new(cca::CcaTsmAttester::default()),
-        "cca-sim" => Box::new(cca::CcaSimulatedAttester::default()),
-        _ => panic!("error: unknown attester"),
+#[derive(Debug, Clone, ValueEnum)]
+#[allow(clippy::enum_variant_names)]
+enum AttesterType {
+    /// CCA TSM attester (requires CCA hardware)
+    CcaTsm,
+    /// CCA simulated attester (no hardware needed)
+    CcaSim,
+    /// CCA attester backed by a RATSD daemon
+    CcaRatsd,
+}
+
+fn create_attester(kind: &AttesterType) -> Box<dyn Attester<AttesterError = CcaError>> {
+    match kind {
+        AttesterType::CcaTsm => Box::new(cca::CcaTsmAttester::default()),
+        AttesterType::CcaSim => Box::new(cca::CcaSimulatedAttester::default()),
+        AttesterType::CcaRatsd => {
+            let raw = std::env::var("RATSD_URL").unwrap_or_else(|_| "http://localhost:8895".into());
+            let url = Url::parse(&raw).expect("RATSD_URL must be a valid URL");
+            Box::new(cca::CcaRatsdAttester::with_url(url))
+        }
     }
 }
 
 fn main() {
     let args = Args::parse();
     env_logger::init();
+
     let attester = create_attester(&args.attester);
     info!("starting cca evidence collection");
     let challenge = vec![0_u8; 64];

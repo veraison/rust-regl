@@ -150,3 +150,28 @@ fn generation_err(exp: u32, got: u32) -> Result<()> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generation_err_ok_when_exp_equals_got() {
+        // No race: write count equals the kernel's generation counter.
+        assert!(generation_err(0, 0).is_ok());
+        assert!(generation_err(5, 5).is_ok());
+    }
+
+    #[test]
+    fn generation_err_returns_error_with_correct_fields() {
+        // A mismatch must surface the exact exp/got values so callers can report them.
+        let err = generation_err(2, 5).unwrap_err();
+        match err {
+            TsmError::GenerationError { exp, got } => {
+                assert_eq!(exp, 2);
+                assert_eq!(got, 5);
+            }
+            other => panic!("expected GenerationError, got {other:?}"),
+        }
+    }
+}

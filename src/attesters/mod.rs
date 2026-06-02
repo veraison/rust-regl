@@ -1,4 +1,5 @@
 pub mod cca;
+pub mod ratsd;
 
 pub trait Attester {
     type AttesterError: std::error::Error;
