@@ -80,6 +80,10 @@ requires root privileges (or write access granted via udev rules).
 NO_PROXY=localhost RATSD_URL=http://localhost:8895 \
   cargo run --example attester -- --attester cca-ratsd --out evidence.cbor
 
+# CCA evidence via RATSD and pretty-print the decoded token
+NO_PROXY=localhost RATSD_URL=http://localhost:8895 \
+  cargo run --example attester -- --attester cca-ratsd --out evidence.cbor --print
+
 # CCA simulated evidence (no hardware needed)
 cargo run --example attester -- --attester cca-sim --out evidence.cbor
 
@@ -88,6 +92,14 @@ sudo cargo run --example tsm -- --out tsm-evidence.cbor
 ```
 
 Set `RUST_LOG=info` to see progress logs from the attester.
+
+## Utilities
+
+`regl::attesters::cca::utils` provides CCA evidence decoding and pretty-printing:
+
+- `decode::decode_cca_token()` — decode raw CBOR evidence to typed Rust structs
+- `print::pretty_print_token()` — decode and format the evidence as JSON
+- `types` — serde-enabled CCA evidence structs with human-readable field names
 
 ## License
 

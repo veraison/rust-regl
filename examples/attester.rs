@@ -1,5 +1,6 @@
 use clap::{Parser, ValueEnum};
 use log::{error, info};
+use regl::attesters::cca::utils::print::pretty_print_token;
 use regl::attesters::{Attester, cca, cca::CcaError};
 use std::fs;
 use url::Url;
@@ -11,6 +12,9 @@ struct Args {
     attester: AttesterType,
     #[arg(short, long)]
     out: String,
+    /// Pretty-print the decoded token to stdout after writing.
+    #[arg(short, long, default_value_t = false)]
+    print: bool,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -52,4 +56,10 @@ fn main() {
         .inspect_err(|e| error!("failed to write to file {e}"))
         .unwrap();
     info!("evidence generation successful!");
+    if args.print {
+        match pretty_print_token(&evidence) {
+            Ok(json) => println!("{json}"),
+            Err(e) => error!("pretty-print failed: {e}"),
+        }
+    }
 }
