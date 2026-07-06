@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn tsm_report_default_has_empty_blobs() {
-        // TsmReport::default() must initialise all three blobs to empty — a
+        // TsmReport::default() must initialise all three blobs to empty - a
         // non-empty default would silently carry stale data into callers.
         let report = TsmReport::default();
         assert!(report.outblob.is_empty());

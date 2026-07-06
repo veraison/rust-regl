@@ -2,7 +2,7 @@
 name = "regl"
 version = "0.1.0"
 edition = "2024"
-description = "Rust Evidence Generation Library — collects attestation evidence from TEE platforms"
+description = "RATS Evidence Generation Library - collects attestation evidence from TEE platforms"
 license = "Apache-2.0"
 repository = "https://github.com/veraison/rust-regl"
 keywords = ["cca", "attestation", "arm", "evidence", "tee"]
@@ -12,16 +12,21 @@ categories = ["hardware-support", "cryptography"]
 thiserror = "2.0.18"
 tempfile = "3"
 ccatoken = { git = "https://github.com/veraison/rust-ccatoken.git" }
-cmw = { git = "https://github.com/veraison/rust-cmw" }
+cmw = "0.1.1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = { version = "0.22", features = ["alloc"] }
 ciborium = "0.2"
+coset = "0.4"
+p384 = { version = "0.13", features = ["ecdsa", "jwk"] }
+ecdsa = { version = "0.16", features = ["signing"] }
+sha2 = "0.11"
+rand_core = { version = "0.6", features = ["getrandom"] }
 url = "2"
 
 [dev-dependencies]
-log = "0.4.29"
-env_logger = "0.11.10"
+log = "0.4.33"
+env_logger = "0.11.11"
 clap = { version = "4.6.1", features = ["derive"] }
 httpmock = "0.8"

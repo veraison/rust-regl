@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 use log::{error, info};
-use regl::attesters::cca::utils::print::pretty_print_token;
+use regl::attesters::cca::utils::pretty_print_token;
 use regl::attesters::{Attester, cca, cca::CcaError};
 use std::fs;
 use url::Url;
@@ -28,10 +28,29 @@ enum AttesterType {
     CcaRatsd,
 }
 
+fn create_sim_attester() -> Box<dyn Attester<AttesterError = CcaError>> {
+    let claims_path =
+        std::env::var("CCA_CLAIMS_FILE").unwrap_or_else(|_| "test-data/cca-claims.json".into());
+    let iak_path = std::env::var("CCA_IAK_FILE").unwrap_or_else(|_| "test-data/iak.jwk".into());
+    let rak_path = std::env::var("CCA_RAK_FILE").ok();
+
+    let claims =
+        fs::read_to_string(&claims_path).unwrap_or_else(|e| panic!("reading {claims_path}: {e}"));
+    let iak = fs::read_to_string(&iak_path).unwrap_or_else(|e| panic!("reading {iak_path}: {e}"));
+    let rak = rak_path
+        .as_ref()
+        .map(|p| fs::read_to_string(p).unwrap_or_else(|e| panic!("reading {p}: {e}")));
+
+    Box::new(
+        cca::CcaSimulatedAttester::new(&claims, &iak, rak.as_deref())
+            .expect("failed to create simulated attester"),
+    )
+}
+
 fn create_attester(kind: &AttesterType) -> Box<dyn Attester<AttesterError = CcaError>> {
     match kind {
         AttesterType::CcaTsm => Box::new(cca::CcaTsmAttester::default()),
-        AttesterType::CcaSim => Box::new(cca::CcaSimulatedAttester::default()),
+        AttesterType::CcaSim => create_sim_attester(),
         AttesterType::CcaRatsd => {
             let raw = std::env::var("RATSD_URL").unwrap_or_else(|_| "http://localhost:8895".into());
             let url = Url::parse(&raw).expect("RATSD_URL must be a valid URL");

@@ -1,0 +1,107 @@
+{
+  "cca-platform-token": {
+    "cca-platform-profile": "tag:arm.com,2023:cca_platform#1.0.0",
+    "cca-platform-challenge": "PU8hmS4J+6OFzL6HbpqlMIsZtINOw0gBwN0UVSTedUo=",
+    "cca-platform-implementation-id": "f0VMRgIBAQAAAAAAAAAAAAMAPgABAAAAUFgAAAAAAAA=",
+    "cca-platform-instance-id": "AQcGBQQDAgEADw4NDAsKCQgXFhUUExIREB8eHRwbGhkY",
+    "cca-platform-config": "z8/Pzw==",
+    "cca-platform-lifecycle": 12291,
+    "cca-platform-sw-components": [
+      {
+        "measurement-type": "RSE_BL1_2",
+        "measurement-value": "micfKpFrC27mzsskJvCzIG7wdFeL5V2byU9vP+Orhqo=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "RSE_BL2",
+        "measurement-value": "U8I05ehHK2rFHBrhyrP+BvrQU7646/2Jd7AQZVv908M=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "RSE_S",
+        "measurement-value": "ESHPzNWRPwpj/sQKb/1E6mT53BNcZmNLoAHRC89DAqI=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "AP_BL1",
+        "measurement-value": "FXG17Hi9aFEr94MLtqKkSyBHx99XvOeeuKHA5b6gpQE=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "AP_BL2",
+        "measurement-value": "EBWbryYrQ6ktldtZ2uH3LGRRJzAWYeCjzk44spWpfFg=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "SCP_BL1",
+        "measurement-value": "EBIuhWs/zUnwY2NjF0dhSctzChqhz6rYGFUrcvVtb2g=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "SCP_BL2",
+        "measurement-value": "qmehabC7oheqCqiKZTRpIMhMQkR8NrpffqZfQiwf5dg=",
+        "signer-id": "8UtJh5BLy1gU5EWaBX7U0g9YpjMVIoinYSFNzSh4C1Y=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "AP_BL31",
+        "measurement-value": "Lm0xpZg6kSUb+uWu+hwKGdi6PPYB0OinBrTPqWYaa4o=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "RMM",
+        "measurement-value": "oftQ5shvrhZ57zNRKW/WcTQRoIz43ReQpP0F+uhogWQ=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "HW_CONFIG",
+        "measurement-value": "GiUkApcvYFf6U8wXK1K5/8ppjhgxH6zQ87Buyq73nhc=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "FW_CONFIG",
+        "measurement-value": "mpKtvAzuOO9ljHHOGxv4xlZo8Wa/shNkTIlcyxrQeiU=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "TB_FW_CONFIG",
+        "measurement-value": "I4kDGAzBBOwsXYs/IMW8YbOJ7AqWffjMIIzcfNRUF08=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      },
+      {
+        "measurement-type": "SOC_FW_CONFIG",
+        "measurement-value": "5sIejSYP5xiC3r2zOdJAKiynZIUpvCMD9IZJvOA4ABc=",
+        "signer-id": "U3h5YwdTXfPsjYsVouLcVkFBnD0wYM/jIjjA+pc/eqM=",
+        "measurement-description": "sha-256"
+      }
+    ],
+    "cca-platform-service-indicator": "https://veraison.example/.well-known/veraison/verification",
+    "cca-platform-hash-algo-id": "sha-256"
+  },
+  "cca-realm-delegated-token": {
+    "cca-realm-profile": "tag:arm.com,2023:realm#1.0.0",
+    "cca-realm-challenge": "bobW2XzHE7xt1D285JGmtAMRwCeov4WjnaY+nORMEyqKEZ0pb65qaZnpvz5EcbDOASRdiJQkwx6JeTs7HWsVBA==",
+    "cca-realm-personalization-value": "VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIDEzIGxhenkgZG9ncy5UaGUgcXVpY2sgYnJvd24gZm94IA==",
+    "cca-realm-initial-measurement": "MRMUq3NiA1DPdYg0rlxl2ejC3H/r5ufZZUu+hk4wDUk=",
+    "cca-realm-extensible-measurements": [
+      "JNWwopbMBcvYBoxQZ8W9Rzt3Ddpq4IL+O6MKvj+aarE=",
+      "eI/AkL/GuO2QMVK6hBTnPa9bjHux55rVAqsGmbZZ7RY=",
+      "2sRqWEFdw6ANenQYUgCOnK5k9S0DufdtdvSzZE/vxBY=",
+      "MsavxiflVYXAMVU1nzMaDiJfaEDblH3Zbvq4G+JnGTk="
+    ],
+    "cca-realm-hash-algo-id": "sha-256",
+    "cca-realm-public-key": "pQECAzgiIAIhWDCKli/Fdn5kFevspJCbDHIJhqMwdkEmMniYzIn/xg8F6qYG1gtQPzAcYfMxE9yhEuEiWDC8u1EwP8oTFHsE9AW1Zig7dKYQzJr4aveSh6atCsCmCcY5UmGhykjSzh87ZzY+l5k=",
+    "cca-realm-public-key-hash-algo-id": "sha-256"
+  }
+}

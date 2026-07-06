@@ -11,7 +11,7 @@ mod ratsd;
 mod simulated;
 
 pub use ratsd::CcaRatsdAttester;
-use simulated::FakeTsmBuilder;
+pub use simulated::CcaSimulatedAttester;
 
 /// Arm CCA nonce size in bytes, as required by the CCA specification
 /// (https://datatracker.ietf.org/doc/draft-ffm-rats-cca-token/).
@@ -19,9 +19,6 @@ const NONCE_SIZE: usize = 64;
 
 #[derive(Debug, Default)]
 pub struct CcaTsmAttester {}
-
-#[derive(Debug, Default)]
-pub struct CcaSimulatedAttester {}
 
 impl Attester for CcaTsmAttester {
     type AttesterError = CcaError;
@@ -34,22 +31,6 @@ impl Attester for CcaTsmAttester {
             )));
         }
         let builder = LinuxTsmReportBuilder::create()?;
-        let challenge = challenge.to_vec();
-        Ok(get_tsm_report(builder, challenge)?.outblob)
-    }
-}
-
-impl Attester for CcaSimulatedAttester {
-    type AttesterError = CcaError;
-
-    fn get_evidence(&self, challenge: &[u8]) -> Result<Vec<u8>> {
-        if challenge.len() != NONCE_SIZE {
-            return Err(CcaError::InvalidNonce(format!(
-                "expected {NONCE_SIZE} bytes, got {}",
-                challenge.len()
-            )));
-        }
-        let builder = FakeTsmBuilder::default();
         let challenge = challenge.to_vec();
         Ok(get_tsm_report(builder, challenge)?.outblob)
     }
@@ -132,5 +113,40 @@ mod tests {
         let err = CcaError::custom("something went wrong");
         let msg = format!("{err}");
         assert!(msg.contains("something went wrong"));
+    }
+
+    // --- Error display ---
+
+    #[test]
+    fn invalid_nonce_displays_message() {
+        // Test that the Display impl formats the error with the expected and actual lengths.
+        // Using a sample bad length of 5 bytes for a visual check; the real value is
+        // generated at runtime based on the actual nonce passed by the caller.
+        let err = CcaError::InvalidNonce(format!(
+            "expected {} bytes, got {}",
+            NONCE_SIZE,
+            b"short".len()
+        ));
+        let msg = format!("{err}");
+        assert!(msg.contains("invalid nonce"));
+        assert!(msg.contains("64"));
+        assert!(msg.contains("5"));
+    }
+
+    #[test]
+    fn tsm_error_displays_message() {
+        let err = CcaError::Tsm(TsmError::Unsupported);
+        let msg = format!("{err}");
+        assert!(msg.contains("TSM error"));
+    }
+
+    #[test]
+    fn ratsd_error_displays_message() {
+        let err = CcaError::Ratsd(crate::attesters::ratsd::RatsdError::Custom(
+            "bad response".into(),
+        ));
+        let msg = format!("{err}");
+        assert!(msg.contains("RATSD error"));
+        assert!(msg.contains("bad response"));
     }
 }
