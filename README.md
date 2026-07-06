@@ -1,15 +1,15 @@
 # rust-regl
 
-Rust Evidence Generation Library (REGL) — collects attestation evidence from TEE platforms.
+RATS Evidence Generation Library (REGL) - collects attestation evidence from TEE platforms.
 
 ## Attesters
 
 | Attester | Struct | Backend | Description |
 |---|---|---|---|
-| `cca-tsm` | `CcaTsmAttester` | Linux TSM (`/sys/kernel/config/tsm`) | Talks directly to the kernel TSM interface on Arm CCA hardware. Requires root or write access to configfs-tsm. |
-| `cca-ratsd` | `CcaRatsdAttester` | RATSD daemon | Posts a challenge to a [RATSD](https://github.com/veraison/ratsd) daemon, then parses the CMW envelope to extract the Arm CCA attestation token. "CCA-specific" means it knows how to find and decode CCA evidence inside the CMW — it looks for items whose content type contains `configfs-tsm` and whose provider is `arm_cca_guest`. |
-| `cca-sim` | `CcaSimulatedAttester` | Embedded blob | Returns a pre-built CCA token embedded at compile time. Useful for testing and development without hardware or a running RATSD. |
-| `ratsd` | `RatsdAttester` | RATSD daemon (generic) | Posts a challenge to a RATSD daemon and returns the raw JSON response as-is. No TEE-specific parsing — use this if you want the CMW envelope or other RATSD-level data directly. |
+| `cca-tsm` | `CcaTsmAttester` | Linux TSM (`/sys/kernel/config/tsm`) | Talks directly to the kernel TSM interface on Arm CCA hardware. Requires root. |
+| `cca-ratsd` | `CcaRatsdAttester` | RATSD daemon | Posts a challenge to a [RATSD](https://github.com/veraison/ratsd) daemon and extracts the CCA attestation token from the CMW envelope. |
+| `cca-sim` | `CcaSimulatedAttester` | Pure Rust | Builds a CCA token from JSON claims and JWK keys with ES384 COSE_Sign1 signatures. No hardware needed. |
+| `ratsd` | `RatsdAttester` | RATSD daemon | Posts a challenge to a RATSD daemon and returns the raw JSON response. No TEE-specific parsing. |
 
 ## Usage
 
@@ -17,12 +17,12 @@ Rust Evidence Generation Library (REGL) — collects attestation evidence from T
 use regl::attesters::{cca, ratsd, Attester};
 use url::Url;
 
-// Generic RATSD — explicit URL required
+// Generic RATSD - returns the raw JSON response, no TEE-specific parsing
 let url = Url::parse("http://localhost:8895").unwrap();
 let attester = ratsd::RatsdAttester::with_url(url);
 let response: Vec<u8> = attester.get_evidence(&challenge).unwrap();
 
-// CCA-specific RATSD — parses CMW envelope, returns CCA token bytes
+// CCA-specific RATSD - parses CMW envelope, returns CCA token bytes
 let url = Url::parse("http://localhost:8895").unwrap();
 let attester = cca::CcaRatsdAttester::with_url(url);
 let evidence = attester.get_evidence(&challenge).unwrap();
@@ -30,11 +30,18 @@ let evidence = attester.get_evidence(&challenge).unwrap();
 // TSM-backed attester (requires Linux CCA TSM hardware and root/sudo)
 let attester = cca::CcaTsmAttester::default();
 let evidence = attester.get_evidence(&challenge).unwrap();
+
+// Simulated attester - builds a token from JSON claims and JWK keys (no hardware needed)
+let claims_json = std::fs::read_to_string("test-data/cca-claims.json").unwrap();
+let iak_jwk = std::fs::read_to_string("test-data/iak.jwk").unwrap();
+let rak_jwk = std::fs::read_to_string("test-data/rak.jwk").unwrap();
+let attester = cca::CcaSimulatedAttester::new(&claims_json, &iak_jwk, Some(&rak_jwk)).unwrap();
+let evidence = attester.get_evidence(&challenge).unwrap();
 ```
 
 > **Note:** The library itself does not read environment variables. The
 > `RATSD_URL` env var is resolved only in the example binaries
-> (`examples/attester.rs`) for convenience — they fall back to
+> (`examples/attester.rs`) for convenience - they fall back to
 > `http://localhost:8895` if the variable is not set. Production code
 > should pass an explicit `Url` via `with_url()`.
 
@@ -95,11 +102,12 @@ Set `RUST_LOG=info` to see progress logs from the attester.
 
 ## Utilities
 
-`regl::attesters::cca::utils` provides CCA evidence decoding and pretty-printing:
+`regl::attesters::cca::utils` provides CCA evidence encoding, decoding, and pretty-printing:
 
-- `decode::decode_cca_token()` — decode raw CBOR evidence to typed Rust structs
-- `print::pretty_print_token()` — decode and format the evidence as JSON
-- `types` — serde-enabled CCA evidence structs with human-readable field names
+- `regl::attesters::cca::utils::encode_cca_token()` - build a CCA token (CBOR tag 399) from typed claims and signing keys
+- `regl::attesters::cca::utils::decode_cca_token()` - decode raw CBOR evidence to typed Rust structs (`CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent`)
+- `regl::attesters::cca::utils::pretty_print_token()` - decode and serialize a CCA token as indented JSON
+- `CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent` - serde-enabled CCA evidence structs with human-readable field names
 
 ## License
 

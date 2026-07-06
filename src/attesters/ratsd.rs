@@ -1,4 +1,4 @@
-//! Generic RATSD attester — posts a challenge to a RATSD daemon and
+//! Generic RATSD attester - posts a challenge to a RATSD daemon and
 //! returns the raw JSON response.
 //!
 //! This module handles only the HTTP transport layer. Attester-specific
@@ -105,7 +105,7 @@ mod tests {
     use httpmock::prelude::*;
 
     // -----------------------------------------------------------------------
-    // Mock server — success path
+    // Mock server - success path
     // -----------------------------------------------------------------------
 
     #[test]
@@ -133,7 +133,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Mock server — error path
+    // Mock server - error path
     // -----------------------------------------------------------------------
 
     #[test]
