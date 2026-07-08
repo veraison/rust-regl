@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project
+// SPDX-License-Identifier: Apache-2.0
+
 //! CCA-specific RATSD attester.
 //!
 //! Uses the generic [`RatsdAttester`](crate::attesters::ratsd::RatsdAttester)

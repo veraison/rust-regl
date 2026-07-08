@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project
+// SPDX-License-Identifier: Apache-2.0
+
 //! Cryptographic operations for CCA token signing and key management.
 //!
 //! Handles P-384 key loading, COSE key building, ES384 signing,

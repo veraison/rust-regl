@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project
+// SPDX-License-Identifier: Apache-2.0
+
 //! Simulated CCA attester - Rust equivalent of `evcli cca create`.
 //!
 //! Builds a structurally valid CCA token (CBOR tag 399) with two
