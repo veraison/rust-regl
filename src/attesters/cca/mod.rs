@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project
+// SPDX-License-Identifier: Apache-2.0
+
 use super::Attester;
 use crate::tsm::linuxtsm::LinuxTsmReportBuilder;
 use crate::tsm::{TsmError, TsmReport, TsmReportBuilder};

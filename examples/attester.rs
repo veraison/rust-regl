@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project
+// SPDX-License-Identifier: Apache-2.0
+
 use clap::{Parser, ValueEnum};
 use log::{error, info};
 use regl::attesters::cca::utils::pretty_print_token;

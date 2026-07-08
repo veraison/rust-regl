@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project
+// SPDX-License-Identifier: Apache-2.0
+
 //! CCA token construction from typed claims.
 //!
 //! Converts [`PlatformClaims`] and [`RealmClaims`] into a CBOR tag 399

@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project
+// SPDX-License-Identifier: Apache-2.0
+
 // CBOR key constants for CCA token claims.
 //
 // These values are defined by the Arm CCA attestation token specification.

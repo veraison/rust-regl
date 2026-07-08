@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project
+// SPDX-License-Identifier: Apache-2.0
+
 //! Generic RATSD attester - posts a challenge to a RATSD daemon and
 //! returns the raw JSON response.
 //!
