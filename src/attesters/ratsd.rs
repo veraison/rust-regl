@@ -21,6 +21,11 @@ const CHARES_PATH: &str = "/ratsd/chares";
 const CHARES_CONTENT_TYPE: &str = "application/vnd.veraison.chares+json";
 const CHARES_ACCEPT: &str =
     "application/eat-ucs+json; eat_profile=\"tag:github.com,2024:veraison/ratsd\"";
+/// Response media type for the legacy chares API (ratsd.yaml).
+const CHARES_RESPONSE_CONTENT_TYPE: &str =
+    "application/eat-ucs+json; eat_profile=\"tag:github.com,2024:veraison/ratsd\"";
+/// Media type for error responses per the RATSD API spec (RFC 7807).
+const PROBLEM_JSON: &str = "application/problem+json";
 /// Default HTTP timeout for RATSD requests.
 const TIMEOUT_SECS: u64 = 30;
 
@@ -90,13 +95,42 @@ fn post_challenge(base_url: &Url, nonce: &[u8]) -> Result<String, RatsdError> {
         .send()?;
 
     let status = resp.status();
+    let full_content_type = resp
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let resp_content_type = full_content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let resp_body = resp.text()?;
 
     if !status.is_success() {
+        // Per ratsd.yaml, errors are reported as application/problem+json
+        // (RFC 7807). Extract the detail field when present.
+        let body = if resp_content_type == PROBLEM_JSON {
+            serde_json::from_str::<serde_json::Value>(&resp_body)
+                .ok()
+                .and_then(|v| v.get("detail").and_then(|d| d.as_str()).map(String::from))
+                .unwrap_or(resp_body)
+        } else {
+            resp_body
+        };
         return Err(RatsdError::HttpError {
             status: status.as_u16(),
-            body: resp_body,
+            body,
         });
+    }
+
+    // Verify the response media type matches the legacy chares API.
+    if full_content_type != CHARES_RESPONSE_CONTENT_TYPE {
+        return Err(RatsdError::ResponseParse(format!(
+            "unexpected response media type: {full_content_type}"
+        )));
     }
 
     Ok(resp_body)
@@ -121,7 +155,10 @@ mod tests {
                 .path("/ratsd/chares")
                 .header("Content-Type", "application/vnd.veraison.chares+json");
             then.status(200)
-                .header("Content-Type", "application/json")
+                .header(
+                    "Content-Type",
+                    "application/eat-ucs+json; eat_profile=\"tag:github.com,2024:veraison/ratsd\"",
+                )
                 .body(r#"{"cmw":"eyJfX2Ntd2NfdCI6InRlc3QifQ=="}"#);
         });
 
@@ -157,5 +194,32 @@ mod tests {
             matches!(err, RatsdError::HttpError { status: 500, .. }),
             "expected HttpError(500), got {err:?}"
         );
+    }
+
+    #[test]
+    fn get_evidence_extracts_detail_from_problem_json_error() {
+        // Per ratsd.yaml, errors are application/problem+json (RFC 7807).
+        // The detail field must surface in the error body.
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/ratsd/chares");
+            then.status(400)
+                .header("Content-Type", "application/problem+json")
+                .body(
+                    r#"{"type":"tag:github.com,2024:veraison/ratsd:error:invalidrequest",
+                        "title":"invalid request","status":400,"detail":"bad nonce"}"#,
+                );
+        });
+
+        let err = RatsdAttester::with_url(Url::parse(&server.base_url()).unwrap())
+            .get_evidence(&[0u8; 64])
+            .unwrap_err();
+        match err {
+            RatsdError::HttpError { status, body } => {
+                assert_eq!(status, 400);
+                assert_eq!(body, "bad nonce");
+            }
+            other => panic!("expected HttpError, got {other:?}"),
+        }
     }
 }
