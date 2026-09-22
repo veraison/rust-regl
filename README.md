@@ -7,24 +7,26 @@ RATS Evidence Generation Library (REGL) - collects attestation evidence from TEE
 | Attester | Struct | Backend | Description |
 |---|---|---|---|
 | `cca-tsm` | `CcaTsmAttester` | Linux TSM (`/sys/kernel/config/tsm`) | Talks directly to the kernel TSM interface on Arm CCA hardware. Requires root. |
-| `cca-ratsd` | `CcaRatsdAttester` | RATSD daemon | Posts a challenge to a [RATSD](https://github.com/veraison/ratsd) daemon and extracts the CCA attestation token from the CMW envelope. |
+| `cca-ratsd` | `CcaRatsdAttester` | RATSD daemon | Posts a challenge to a [RATSD](https://github.com/veraison/ratsd) daemon and extracts the CCA attestation token from its CMW collection. |
 | `cca-sim` | `CcaSimulatedAttester` | Pure Rust | Builds a CCA token from JSON claims and JWK keys with ES384 COSE_Sign1 signatures. No hardware needed. |
-| `ratsd` | `RatsdAttester` | RATSD daemon | Posts a challenge to a RATSD daemon and returns the raw JSON response. No TEE-specific parsing. |
+| `ratsd` | `RatsdAttester` | RATSD daemon | Posts a challenge to a RATSD daemon and returns the raw token bytes (COSE_Sign1-wrapped CMW collection, CBOR). No TEE-specific parsing. |
+
+> **Note:** The `cca-ratsd` and `ratsd` attesters require
+> [RATSD](https://github.com/veraison/ratsd) `v0.0.1` or later, which
+> introduced the RATSD v2 token (COSE-signed EAT evidence, CBOR-only).
+> Earlier RATSD versions are not supported.
 
 ## Usage
 
 ```rust
 use regl::attesters::{cca, ratsd, Attester};
-use url::Url;
 
-// Generic RATSD - returns the raw JSON response, no TEE-specific parsing
-let url = Url::parse("http://localhost:8895").unwrap();
-let attester = ratsd::RatsdAttester::with_url(url);
+// Generic RATSD - returns the raw token bytes, no TEE-specific parsing
+let attester = ratsd::RatsdAttester::with_url("http://localhost:8895").unwrap();
 let response: Vec<u8> = attester.get_evidence(&challenge).unwrap();
 
-// CCA-specific RATSD - parses CMW envelope, returns CCA token bytes
-let url = Url::parse("http://localhost:8895").unwrap();
-let attester = cca::CcaRatsdAttester::with_url(url);
+// CCA-specific RATSD - parses the CMW collection, returns CCA token bytes
+let attester = cca::CcaRatsdAttester::with_url("http://localhost:8895").unwrap();
 let evidence = attester.get_evidence(&challenge).unwrap();
 
 // TSM-backed attester (requires Linux CCA TSM hardware and root/sudo)
@@ -43,7 +45,7 @@ let evidence = attester.get_evidence(&challenge).unwrap();
 > `RATSD_URL` env var is resolved only in the example binaries
 > (`examples/attester.rs`) for convenience - they fall back to
 > `http://localhost:8895` if the variable is not set. Production code
-> should pass an explicit `Url` via `with_url()`.
+> should pass an explicit URL string to `with_url()`.
 
 > **Note:** If a system HTTP proxy is configured, set `NO_PROXY=localhost`
 > to prevent requests to the local RATSD daemon from being routed through
@@ -53,7 +55,8 @@ let evidence = attester.get_evidence(&challenge).unwrap();
 
 ### RATSD (for `cca-ratsd` and `ratsd` attesters)
 
-A running [RATSD](https://github.com/veraison/ratsd) daemon is required.
+A running [RATSD](https://github.com/veraison/ratsd) daemon (`v0.0.1` or
+later) is required.
 
 1. Clone and build RATSD:
    ```sh
@@ -97,6 +100,15 @@ cargo run --example attester -- --attester cca-sim --out evidence.cbor
 # CCA evidence via TSM (requires CCA hardware and root)
 sudo cargo run --example tsm -- --out tsm-evidence.cbor
 ```
+
+> **Note:** `sudo cargo run` can fail with "command not found" if `cargo`
+> was installed via rustup, since `~/.cargo/bin` is usually not on root's
+> `PATH` under `sudo`. Build as your normal user first, then run the
+> compiled binary with `sudo`:
+> ```sh
+> cargo build --example tsm
+> sudo ./target/debug/examples/tsm --out tsm-evidence.cbor
+> ```
 
 Set `RUST_LOG=info` to see progress logs from the attester.
 

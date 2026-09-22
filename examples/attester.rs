@@ -6,7 +6,6 @@ use log::{error, info};
 use regl::attesters::cca::utils::pretty_print_token;
 use regl::attesters::{Attester, cca, cca::CcaError};
 use std::fs;
-use url::Url;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -56,8 +55,7 @@ fn create_attester(kind: &AttesterType) -> Box<dyn Attester<AttesterError = CcaE
         AttesterType::CcaSim => create_sim_attester(),
         AttesterType::CcaRatsd => {
             let raw = std::env::var("RATSD_URL").unwrap_or_else(|_| "http://localhost:8895".into());
-            let url = Url::parse(&raw).expect("RATSD_URL must be a valid URL");
-            Box::new(cca::CcaRatsdAttester::with_url(url))
+            Box::new(cca::CcaRatsdAttester::with_url(&raw).expect("RATSD_URL must be a valid URL"))
         }
     }
 }
