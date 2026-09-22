@@ -4,51 +4,44 @@
 //! CCA-specific RATSD attester.
 //!
 //! Uses the generic [`RatsdAttester`](crate::attesters::ratsd::RatsdAttester)
-//! to communicate with a RATSD daemon, then parses the CMW envelope to
-//! extract the CCA attestation token.
+//! to communicate with a RATSD daemon, then uses
+//! [`RatsdToken`](crate::attesters::ratsd::utils::RatsdToken) to parse the
+//! RATSD v2 token and extract the CCA attestation token from its CMW
+//! collection.
 //!
 //! The caller receives only the raw CCA token bytes (CBOR-encoded COSE_Sign1).
 
 use base64::{Engine, engine::general_purpose};
 use cmw::CMW as CmwEnum;
-use cmw::collection::{Collection, Label as CmwLabel};
-use cmw::monad::Monad;
+use cmw::collection::Collection;
 use serde_json::Value as JsonValue;
-use std::str;
 
 use super::{Attester, CcaError};
+use crate::attesters::ratsd::utils::RatsdToken;
 use crate::attesters::ratsd::{RatsdAttester, RatsdError};
 
 const CCA_PROVIDER: &str = "arm_cca_guest";
 
 /// RATSD media types from the RATSD API spec (docs/api/ratsd.yaml).
 /// Only TSM report evidence is considered for CCA extraction; matching is
-/// exact, per the `ratsd-collection-legacy` definition in
-/// docs/ratsd-token.cddl.
+/// exact, per the `ratsd-collection` definition in docs/ratsd-token.cddl.
 pub const RATSD_TSM_REPORT_JSON: &str = "application/vnd.veraison.tsm-report+json";
 pub const RATSD_TSM_REPORT_CBOR: &str = "application/vnd.veraison.tsm-report+cbor";
-const RATSD_TSM_REPORT_TYPES: [&str; 2] = [RATSD_TSM_REPORT_JSON, RATSD_TSM_REPORT_CBOR];
-
-/// Collection type of the legacy CMW collection (ratsd-token.cddl).
-const RATSD_CMWCT_LEGACY: &str = "tag:github.com,2025:veraison/ratsd/cmw";
-
-/// eat_profile of the legacy RATSD token (ratsd-token.cddl).
-const RATSD_LEGACY_PROFILE: &str = "tag:github.com,2024:veraison/ratsd";
 
 /// CCA attester backed by a running RATSD daemon.
 ///
 /// Wraps a generic [`RatsdAttester`] and applies CCA-specific
-/// evidence extraction on top of the raw RATSD response.
+/// evidence extraction on top of the raw RATSD v2 token.
 pub struct CcaRatsdAttester {
     ratsd: RatsdAttester,
 }
 
 impl CcaRatsdAttester {
     /// Construct a CCA RATSD attester that posts to `url`.
-    pub fn with_url(url: url::Url) -> Self {
-        Self {
-            ratsd: RatsdAttester::with_url(url),
-        }
+    pub fn with_url(url: &str) -> Result<Self, CcaError> {
+        Ok(Self {
+            ratsd: RatsdAttester::with_url(url)?,
+        })
     }
 }
 
@@ -63,10 +56,8 @@ impl Attester for CcaRatsdAttester {
                 challenge.len()
             )));
         }
-        let resp_bytes = self.ratsd.get_evidence(challenge)?;
-        let resp_body = str::from_utf8(&resp_bytes)
-            .map_err(|e| RatsdError::ResponseParse(format!("invalid UTF-8: {e}")))?;
-        Ok(extract_cca_token(resp_body)?)
+        let token = self.ratsd.get_evidence(challenge)?;
+        Ok(extract_cca_token(&token)?)
     }
 }
 
@@ -74,97 +65,35 @@ impl Attester for CcaRatsdAttester {
 // CCA evidence extraction
 // ---------------------------------------------------------------------------
 
-fn extract_cca_token(resp_body: &str) -> Result<Vec<u8>, RatsdError> {
-    let envelope: JsonValue = serde_json::from_str(resp_body)
-        .map_err(|e| RatsdError::ResponseParse(format!("invalid JSON: {e}")))?;
-
-    // Per ratsd-token.cddl, the legacy token carries an eat_profile claim
-    // identifying the RATSD profile.
-    let profile = envelope["eat_profile"]
-        .as_str()
-        .ok_or_else(|| RatsdError::ResponseParse("missing eat_profile field".into()))?;
-    if profile != RATSD_LEGACY_PROFILE {
-        return Err(RatsdError::ResponseParse(format!(
-            "unexpected eat_profile: {profile}"
-        )));
-    }
-
-    // Per ratsd-token.cddl, the cmw field is base64url-encoded (.b64u).
-    let cmw_b64 = envelope["cmw"]
-        .as_str()
-        .ok_or_else(|| RatsdError::ResponseParse("missing cmw field".into()))?;
-
-    let cmw_bytes = general_purpose::URL_SAFE_NO_PAD
-        .decode(cmw_b64)
-        .map_err(|e| RatsdError::ResponseParse(format!("cmw base64url decode: {e}")))?;
-
-    let items = parse_cmw_items(&cmw_bytes)?;
-    find_cca_outblob(&items)
+fn extract_cca_token(token: &[u8]) -> Result<Vec<u8>, RatsdError> {
+    let ratsd_token =
+        RatsdToken::from_slice(token).map_err(|e| RatsdError::ResponseParse(e.to_string()))?;
+    find_cca_outblob(&ratsd_token.collection)
 }
 
-fn parse_cmw_items(cmw_json: &[u8]) -> Result<Vec<Monad>, RatsdError> {
-    let collection = Collection::unmarshal_json(cmw_json)
-        .map_err(|e| RatsdError::ResponseParse(format!("CMW collection: {e}")))?;
-
-    // Per ratsd-token.cddl, the legacy collection type is fixed.
-    match collection.get_type() {
-        Some(ctyp) if ctyp.to_string() == RATSD_CMWCT_LEGACY => {}
-        Some(ctyp) => {
-            return Err(RatsdError::ResponseParse(format!(
-                "unexpected CMW collection type: {ctyp}"
-            )));
-        }
-        None => {
-            return Err(RatsdError::ResponseParse(
-                "missing CMW collection type".into(),
-            ));
-        }
-    }
-
-    let mut items = Vec::new();
+fn find_cca_outblob(collection: &Collection) -> Result<Vec<u8>, RatsdError> {
     for meta in collection.get_meta() {
-        if matches!(&meta.key, CmwLabel::Str(s) if s == "__cmwc_t") {
+        let Some(CmwEnum::Monad(monad)) = collection.get_item(&meta.key) else {
             continue;
-        }
-        if let Some(CmwEnum::Monad(monad)) = collection.get_item(&meta.key) {
-            items.push(monad.clone());
-        }
-    }
-
-    Ok(items)
-}
-
-fn find_cca_outblob(items: &[Monad]) -> Result<Vec<u8>, RatsdError> {
-    for item in items {
-        // Exact match against the RATSD TSM report media types.
-        if !RATSD_TSM_REPORT_TYPES.iter().any(|t| *t == item.type_()) {
-            continue;
-        }
-
-        let json: JsonValue = match serde_json::from_slice(&item.value()) {
-            Ok(v) => v,
-            Err(_) => continue,
         };
 
-        let provider = json
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim();
+        let media_type = monad.type_();
+        let value = monad.value();
+
+        // Exact match against the RATSD TSM report media types; the value
+        // encoding differs between the JSON and CBOR variants.
+        let parsed = match media_type.as_str() {
+            RATSD_TSM_REPORT_JSON => parse_tsm_report_json(&value),
+            RATSD_TSM_REPORT_CBOR => parse_tsm_report_cbor(&value),
+            _ => None,
+        };
+
+        let Some((provider, outblob)) = parsed else {
+            continue;
+        };
         if provider != CCA_PROVIDER {
             continue;
         }
-
-        let outblob_b64 =
-            json.get("outblob")
-                .and_then(|v| v.as_str())
-                .ok_or(RatsdError::Custom(
-                    "CCA evidence not found in RATSD response".into(),
-                ))?;
-
-        let outblob = general_purpose::URL_SAFE_NO_PAD
-            .decode(outblob_b64)
-            .map_err(|e| RatsdError::ResponseParse(format!("outblob decode: {e}")))?;
 
         return Ok(outblob);
     }
@@ -174,52 +103,190 @@ fn find_cca_outblob(items: &[Monad]) -> Result<Vec<u8>, RatsdError> {
     ))
 }
 
+/// Parse a `tsm-report+json` monad value (docs/tsm-report.cddl): a JSON
+/// object with a base64url-encoded `outblob`. Returns `None` if the value
+/// is not a well-formed TSM report, so the caller can skip to the next item.
+fn parse_tsm_report_json(value: &[u8]) -> Option<(String, Vec<u8>)> {
+    let json: JsonValue = serde_json::from_slice(value).ok()?;
+    let provider = json.get("provider")?.as_str()?.trim().to_string();
+    let outblob_b64 = json.get("outblob")?.as_str()?;
+    let outblob = general_purpose::URL_SAFE_NO_PAD.decode(outblob_b64).ok()?;
+    Some((provider, outblob))
+}
+
+/// Parse a `tsm-report+cbor` monad value (docs/tsm-report.cddl): a CBOR map
+/// with a raw byte-string `outblob`. Returns `None` if the value is not a
+/// well-formed TSM report, so the caller can skip to the next item.
+fn parse_tsm_report_cbor(value: &[u8]) -> Option<(String, Vec<u8>)> {
+    let cbor: ciborium::Value = ciborium::from_reader(value).ok()?;
+    let map = cbor.as_map()?;
+    let provider = map
+        .iter()
+        .find(|(k, _)| k.as_text() == Some("provider"))
+        .and_then(|(_, v)| v.as_text())?
+        .trim()
+        .to_string();
+    let outblob = map
+        .iter()
+        .find(|(k, _)| k.as_text() == Some("outblob"))
+        .and_then(|(_, v)| v.as_bytes())?
+        .clone();
+    Some((provider, outblob))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::attesters::Attester;
     use crate::attesters::cca::CcaError;
+    use crate::attesters::ratsd::utils::{RATSD_CLAIMS_KEY, RATSD_CMWCT_V2, RATSD_V2_PROFILE};
+    use cmw::collection::{Label as CmwLabel, Type as CmwType};
+    use cmw::monad::Monad;
+    use coset::CoseSign1Builder;
+    use coset::TaggedCborSerializable;
+    use httpmock::prelude::*;
 
-    // Build a legacy RATSD envelope (per ratsd-token.cddl) wrapping a
-    // CMW collection whose items are given as JSON records.
-    fn build_envelope(cmw_type: &str, media_type: &str, evidence_b64: &str) -> String {
-        let cmw_json = serde_json::json!({
-            "__cmwc_t": cmw_type,
-            "mock-cca": [media_type, evidence_b64],
-        });
-        let cmw_b64 =
-            general_purpose::URL_SAFE_NO_PAD.encode(serde_json::to_vec(&cmw_json).unwrap());
-        serde_json::json!({
-            "eat_profile": "tag:github.com,2024:veraison/ratsd",
-            "eat_nonce": "test-nonce",
-            "cmw": cmw_b64,
-        })
-        .to_string()
+    // -----------------------------------------------------------------------
+    // Test fixtures
+    //
+    // RatsdToken parsing itself (COSE_Sign1, CMW collection, claims) is
+    // covered by attesters::ratsd::utils's own tests; the fixtures and
+    // tests here only need to build well-formed RATSD v2 tokens and focus
+    // on CCA-specific outblob extraction.
+    // -----------------------------------------------------------------------
+
+    /// Build the CBOR-encoded, tag-601 RATSD claims record (ratsd-token.cddl).
+    fn build_claims_cbor(profile: &str) -> Vec<u8> {
+        let map = ciborium::Value::Map(vec![
+            (
+                ciborium::Value::Integer(265.into()),
+                ciborium::Value::Text(profile.to_string()),
+            ),
+            (
+                ciborium::Value::Integer(10.into()),
+                ciborium::Value::Bytes(vec![0u8; 32]),
+            ),
+            (
+                ciborium::Value::Integer(258.into()),
+                ciborium::Value::Integer(48482.into()),
+            ),
+            (
+                ciborium::Value::Integer(270.into()),
+                ciborium::Value::Text("ratsd".into()),
+            ),
+            (
+                ciborium::Value::Integer(271.into()),
+                ciborium::Value::Array(vec![ciborium::Value::Text("1.0.0".into())]),
+            ),
+        ]);
+        let tagged = ciborium::Value::Tag(601, Box::new(map));
+        let mut buf = Vec::new();
+        ciborium::into_writer(&tagged, &mut buf).unwrap();
+        buf
     }
 
-    fn build_cca_evidence() -> (Vec<u8>, String) {
-        let outblob = b"fake-cca-token-bytes".to_vec();
-        let outblob_b64 = general_purpose::URL_SAFE_NO_PAD.encode(&outblob);
-        let tsm_report = serde_json::json!({
-            "provider": "arm_cca_guest",
-            "outblob": outblob_b64,
-        });
-        let evidence_b64 =
-            general_purpose::URL_SAFE_NO_PAD.encode(serde_json::to_vec(&tsm_report).unwrap());
-        (outblob, evidence_b64)
+    /// Build a RATSD v2 token (COSE_Sign1-wrapped CMW collection, per
+    /// ratsd-token.cddl) carrying a single leaf-attester record.
+    fn build_v2_token(profile: &str, media_type: &str, value: Vec<u8>) -> Vec<u8> {
+        let mut collection =
+            Collection::new(Some(CmwType::new(RATSD_CMWCT_V2).unwrap()), None).unwrap();
+
+        let claims_media_type = format!("application/eat-ucs+cbor; eat_profile=\"{profile}\"");
+        let claims_monad = Monad::new_media_type(
+            claims_media_type.parse().unwrap(),
+            build_claims_cbor(profile),
+            None,
+        )
+        .unwrap();
+        collection
+            .add_item(
+                CmwLabel::Str(RATSD_CLAIMS_KEY.to_string()),
+                CmwEnum::Monad(claims_monad),
+            )
+            .unwrap();
+
+        let leaf_monad = Monad::new_media_type(media_type.parse().unwrap(), value, None).unwrap();
+        collection
+            .add_item(
+                CmwLabel::Str("mock-cca".to_string()),
+                CmwEnum::Monad(leaf_monad),
+            )
+            .unwrap();
+
+        let payload = collection.marshal_cbor().unwrap();
+        let sign1 = CoseSign1Builder::new().payload(payload).build();
+        sign1.to_tagged_vec().unwrap()
+    }
+
+    fn build_tsm_report_json(provider: &str, outblob: &[u8]) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "provider": provider,
+            "outblob": general_purpose::URL_SAFE_NO_PAD.encode(outblob),
+        }))
+        .unwrap()
+    }
+
+    fn build_tsm_report_cbor(provider: &str, outblob: &[u8]) -> Vec<u8> {
+        let map = ciborium::Value::Map(vec![
+            (
+                ciborium::Value::Text("outblob".into()),
+                ciborium::Value::Bytes(outblob.to_vec()),
+            ),
+            (
+                ciborium::Value::Text("provider".into()),
+                ciborium::Value::Text(provider.to_string()),
+            ),
+        ]);
+        let mut buf = Vec::new();
+        ciborium::into_writer(&map, &mut buf).unwrap();
+        buf
     }
 
     // -----------------------------------------------------------------------
-    // CcaRatsdAttester nonce validation
+    // CcaRatsdAttester construction and nonce validation
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn cca_ratsd_attester_rejects_invalid_url() {
+        assert!(CcaRatsdAttester::with_url("not a url").is_err());
+    }
 
     #[test]
     fn cca_ratsd_attester_rejects_invalid_nonce() {
         // CCA requires exactly 64 bytes; the attester must enforce this
         // before making any HTTP call.
-        let attester = CcaRatsdAttester::with_url(url::Url::parse("http://127.0.0.1").unwrap());
+        let attester = CcaRatsdAttester::with_url("http://127.0.0.1").unwrap();
         let result = attester.get_evidence(b"short");
         assert!(matches!(result.unwrap_err(), CcaError::InvalidNonce(_)));
+    }
+
+    #[test]
+    fn cca_ratsd_attester_get_evidence_round_trips_through_http() {
+        // End-to-end: CcaRatsdAttester posts over HTTP, then extracts the
+        // outblob from the v2 token in the response, not just the
+        // extract_cca_token() unit tested below in isolation.
+        let outblob = b"fake-cca-token-bytes".to_vec();
+        let token = build_v2_token(
+            RATSD_V2_PROFILE,
+            RATSD_TSM_REPORT_JSON,
+            build_tsm_report_json(CCA_PROVIDER, &outblob),
+        );
+
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/ratsd/chares");
+            then.status(200)
+                .header(
+                    "Content-Type",
+                    "application/cmw+cbor; cmwct=\"tag:github.com,2026:veraison/ratsd/v2\"",
+                )
+                .body(token);
+        });
+
+        let attester = CcaRatsdAttester::with_url(&server.base_url()).unwrap();
+        let result = attester.get_evidence(&[0u8; 64]).unwrap();
+        assert_eq!(result, outblob);
+        mock.assert();
     }
 
     // -----------------------------------------------------------------------
@@ -228,28 +295,29 @@ mod tests {
 
     #[test]
     fn extract_cca_token_returns_outblob_for_tsm_report_json() {
-        // A well-formed legacy envelope containing a tsm-report+json item
-        // with a CCA provider must yield the decoded outblob bytes.
-        let (outblob, evidence_b64) = build_cca_evidence();
-        let envelope = build_envelope(
-            "tag:github.com,2025:veraison/ratsd/cmw",
+        // A well-formed v2 token containing a tsm-report+json item with a
+        // CCA provider must yield the decoded outblob bytes.
+        let outblob = b"fake-cca-token-bytes".to_vec();
+        let token = build_v2_token(
+            RATSD_V2_PROFILE,
             RATSD_TSM_REPORT_JSON,
-            &evidence_b64,
+            build_tsm_report_json(CCA_PROVIDER, &outblob),
         );
-        let result = extract_cca_token(&envelope).unwrap();
+        let result = extract_cca_token(&token).unwrap();
         assert_eq!(result, outblob);
     }
 
     #[test]
     fn extract_cca_token_returns_outblob_for_tsm_report_cbor() {
-        // The tsm-report+cbor media type must also be accepted.
-        let (outblob, evidence_b64) = build_cca_evidence();
-        let envelope = build_envelope(
-            "tag:github.com,2025:veraison/ratsd/cmw",
+        // The tsm-report+cbor media type must also be accepted, with the
+        // outblob as a raw byte string rather than base64url text.
+        let outblob = b"fake-cca-token-bytes".to_vec();
+        let token = build_v2_token(
+            RATSD_V2_PROFILE,
             RATSD_TSM_REPORT_CBOR,
-            &evidence_b64,
+            build_tsm_report_cbor(CCA_PROVIDER, &outblob),
         );
-        let result = extract_cca_token(&envelope).unwrap();
+        let result = extract_cca_token(&token).unwrap();
         assert_eq!(result, outblob);
     }
 
@@ -258,54 +326,11 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn extract_cca_token_returns_error_on_invalid_json() {
-        // Completely malformed input must not panic.
-        assert!(extract_cca_token("not-json-at-all").is_err());
-    }
-
-    #[test]
-    fn extract_cca_token_returns_error_when_eat_profile_missing() {
-        // A JSON object that lacks "eat_profile" must be rejected.
-        let json = r#"{"cmw": "abc"}"#;
-        assert!(extract_cca_token(json).is_err());
-    }
-
-    #[test]
-    fn extract_cca_token_returns_error_on_unexpected_eat_profile() {
-        // A legacy envelope with a different eat_profile must be rejected.
-        let (_, evidence_b64) = build_cca_evidence();
-        let envelope = serde_json::json!({
-            "eat_profile": "tag:example.com,2026:not-ratsd",
-            "cmw": general_purpose::URL_SAFE_NO_PAD.encode(
-                serde_json::to_vec(&serde_json::json!({
-                    "__cmwc_t": "tag:github.com,2025:veraison/ratsd/cmw",
-                    "mock-cca": [RATSD_TSM_REPORT_JSON, evidence_b64],
-                }))
-                .unwrap()
-            ),
-        })
-        .to_string();
-        assert!(extract_cca_token(&envelope).is_err());
-    }
-
-    #[test]
-    fn extract_cca_token_returns_error_when_cmw_field_missing() {
-        // A JSON object with a valid profile but no "cmw" must be rejected.
-        let json = r#"{"eat_profile":"tag:github.com,2024:veraison/ratsd"}"#;
-        assert!(extract_cca_token(json).is_err());
-    }
-
-    #[test]
-    fn extract_cca_token_returns_error_on_unexpected_cmw_collection_type() {
-        // A CMW collection whose type is not the legacy RATSD collection
-        // type must be rejected.
-        let (_, evidence_b64) = build_cca_evidence();
-        let envelope = build_envelope(
-            "tag:example.com,2026:not-ratsd-cmw",
-            RATSD_TSM_REPORT_JSON,
-            &evidence_b64,
-        );
-        let err = extract_cca_token(&envelope).unwrap_err();
+    fn extract_cca_token_propagates_ratsd_token_parse_errors() {
+        // A malformed RATSD v2 token (invalid COSE_Sign1) must surface as
+        // a RatsdError::ResponseParse; the specific RatsdToken parsing
+        // failure modes are covered by attesters::ratsd::utils's tests.
+        let err = extract_cca_token(b"not-a-cose-token").unwrap_err();
         assert!(
             matches!(err, RatsdError::ResponseParse(_)),
             "expected ResponseParse error, got {err:?}"
@@ -314,15 +339,14 @@ mod tests {
 
     #[test]
     fn extract_cca_token_returns_error_when_no_cca_provider_in_cmw() {
-        // A well-formed envelope whose CMW contains only non-TSM items must
+        // A well-formed token whose CMW contains only non-TSM items must
         // return a custom error, not a panic or a spurious success.
-        let (_, evidence_b64) = build_cca_evidence();
-        let envelope = build_envelope(
-            "tag:github.com,2025:veraison/ratsd/cmw",
+        let token = build_v2_token(
+            RATSD_V2_PROFILE,
             "application/vnd.veraison.not-tsm+json",
-            &evidence_b64,
+            build_tsm_report_json(CCA_PROVIDER, b"x"),
         );
-        let err = extract_cca_token(&envelope).unwrap_err();
+        let err = extract_cca_token(&token).unwrap_err();
         assert!(
             matches!(err, RatsdError::Custom(_)),
             "expected Custom error, got {err:?}"
@@ -333,30 +357,15 @@ mod tests {
     fn extract_cca_token_returns_error_on_non_cca_provider() {
         // A tsm-report item whose provider is not the CCA provider must
         // not yield evidence.
-        let tsm_report = serde_json::json!({
-            "provider": "some_other_provider",
-            "outblob": general_purpose::URL_SAFE_NO_PAD.encode(b"x"),
-        });
-        let evidence_b64 =
-            general_purpose::URL_SAFE_NO_PAD.encode(serde_json::to_vec(&tsm_report).unwrap());
-        let envelope = build_envelope(
-            "tag:github.com,2025:veraison/ratsd/cmw",
+        let token = build_v2_token(
+            RATSD_V2_PROFILE,
             RATSD_TSM_REPORT_JSON,
-            &evidence_b64,
+            build_tsm_report_json("some_other_provider", b"x"),
         );
-        let err = extract_cca_token(&envelope).unwrap_err();
+        let err = extract_cca_token(&token).unwrap_err();
         assert!(
             matches!(err, RatsdError::Custom(_)),
             "expected Custom error, got {err:?}"
         );
-    }
-
-    #[test]
-    fn extract_cca_token_returns_error_on_invalid_cmw_base64() {
-        // An envelope with a "cmw" value that is not valid base64url must
-        // be rejected.
-        let envelope =
-            r#"{"eat_profile":"tag:github.com,2024:veraison/ratsd","cmw":"!!!not-base64!!!"}"#;
-        assert!(extract_cca_token(envelope).is_err());
     }
 }
