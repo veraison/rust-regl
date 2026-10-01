@@ -11,7 +11,7 @@ categories = ["hardware-support", "cryptography"]
 [dependencies]
 thiserror = "2.0.18"
 tempfile = "3"
-ccatoken = { git = "https://github.com/veraison/rust-ccatoken.git" }
+ccatoken = { git = "https://github.com/veraison/rust-ccatoken.git", rev = "870c83f" }
 cmw = "0.1.1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
