@@ -116,10 +116,10 @@ Set `RUST_LOG=info` to see progress logs from the attester.
 
 `regl::attesters::cca::utils` provides CCA evidence encoding, decoding, and pretty-printing:
 
-- `regl::attesters::cca::utils::encode_cca_token()` - build a CCA token (CBOR tag 399) from typed claims and signing keys
-- `regl::attesters::cca::utils::decode_cca_token()` - decode raw CBOR evidence to typed Rust structs (`CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent`)
+- `regl::attesters::cca::utils::encode_cca_token()` - build a CCA token (CBOR tag 399, draft-ffm-rats-cca-token-01 profiles) from typed claims and signing keys
+- `regl::attesters::cca::utils::decode_cca_token()` - decode raw CBOR evidence to typed Rust structs (`CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent`); accepts both the CBOR tag 399 collection (draft-ffm-rats-cca-token-01, 2023 profiles) and the CBOR tag 907 CMW collection (draft-ffm-03, 2024 profiles)
 - `regl::attesters::cca::utils::pretty_print_token()` - decode and serialize a CCA token as indented JSON
-- `CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent` - serde-enabled CCA evidence structs with human-readable field names
+- `CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent`, `ExtensionDevice`, `TbbRotpkItem` - serde-enabled CCA evidence structs with human-readable field names (the draft-ffm-03 / 2024 profile claims - `client-id`, `mec-policy`, realm `instance-id`, extension devices, TBB RoTPK entries, ... - are optional fields, absent for draft-01 tokens)
 
 ## License
 

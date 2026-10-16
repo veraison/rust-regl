@@ -10,4 +10,6 @@ mod types;
 pub use decode::{decode_cca_token, pretty_print_token};
 pub(super) use encode::SimulatedTokenBuilder;
 pub use encode::encode_cca_token;
-pub use types::{CcaToken, PlatformClaims, RealmClaims, SwComponent};
+pub use types::{
+    CcaToken, ExtensionDevice, PlatformClaims, RealmClaims, SwComponent, TbbRotpkItem,
+};

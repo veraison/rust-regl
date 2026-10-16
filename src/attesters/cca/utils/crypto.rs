@@ -78,16 +78,6 @@ pub fn sign_cose_sign1(payload: &[u8], key: &SigningKey) -> Result<Vec<u8>, CcaE
     Ok(tagged)
 }
 
-/// Check whether a hash algorithm string is supported.
-///
-/// Accepts `"sha-256"`, `"sha-384"`, and `"sha-512"` per the IANA Named
-/// Information Hash Algorithm Registry and the RMM specification.
-/// This is intentionally broader than `ccatoken::token::is_valid_hash`
-/// which currently omits SHA-384.
-pub fn is_supported_hash_alg(s: &str) -> bool {
-    matches!(s, "sha-256" | "sha-384" | "sha-512")
-}
-
 /// Hash `data` using the algorithm named in `algo`.
 ///
 /// Accepts `"sha-256"`, `"sha-384"`, and `"sha-512"` per the IANA Named
@@ -112,26 +102,6 @@ pub fn compute_hash(data: &[u8], algo: &str) -> Result<Vec<u8>, CcaError> {
 mod tests {
     use super::*;
     use rand_core::OsRng;
-
-    // -----------------------------------------------------------------------
-    // is_supported_hash_alg
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn supported_hash_alg_accepts_sha256_sha384_sha512() {
-        assert!(is_supported_hash_alg("sha-256"));
-        assert!(is_supported_hash_alg("sha-384"));
-        assert!(is_supported_hash_alg("sha-512"));
-    }
-
-    #[test]
-    fn supported_hash_alg_rejects_unknown() {
-        assert!(!is_supported_hash_alg("md5"));
-        assert!(!is_supported_hash_alg("sha-1"));
-        assert!(!is_supported_hash_alg("SHA-256"));
-        assert!(!is_supported_hash_alg(""));
-        assert!(!is_supported_hash_alg("sha384"));
-    }
 
     // -----------------------------------------------------------------------
     // compute_hash
