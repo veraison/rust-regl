@@ -24,6 +24,7 @@ pub const PLAT_HASH_ALGO: u64 = 2402;
 // Platform SW component integer keys
 pub const SW_MEASUREMENT_TYPE: u64 = 1;
 pub const SW_MEASUREMENT_VALUE: u64 = 2;
+pub const SW_VERSION: u64 = 4;
 pub const SW_SIGNER_ID: u64 = 5;
 pub const SW_MEASUREMENT_DESC: u64 = 6;
 
@@ -79,6 +80,7 @@ mod tests {
     fn sw_component_keys_have_expected_values() {
         assert_eq!(SW_MEASUREMENT_TYPE, 1);
         assert_eq!(SW_MEASUREMENT_VALUE, 2);
+        assert_eq!(SW_VERSION, 4);
         assert_eq!(SW_SIGNER_ID, 5);
         assert_eq!(SW_MEASUREMENT_DESC, 6);
     }

@@ -13,7 +13,7 @@
 
 use base64::{Engine, engine::general_purpose};
 use cmw::CMW as CmwEnum;
-use cmw::collection::Collection;
+use cmw::collection::{Collection, Label as CmwLabel};
 use serde_json::Value as JsonValue;
 
 use super::{Attester, CcaError};
@@ -72,6 +72,7 @@ fn extract_cca_token(token: &[u8]) -> Result<Vec<u8>, RatsdError> {
 }
 
 fn find_cca_outblob(collection: &Collection) -> Result<Vec<u8>, RatsdError> {
+    let mut found: Option<(String, Vec<u8>)> = None;
     for meta in collection.get_meta() {
         let Some(CmwEnum::Monad(monad)) = collection.get_item(&meta.key) else {
             continue;
@@ -95,12 +96,32 @@ fn find_cca_outblob(collection: &Collection) -> Result<Vec<u8>, RatsdError> {
             continue;
         }
 
-        return Ok(outblob);
+        if let Some((first, _)) = &found {
+            // More than one CCA report (e.g. a real tsm-report plus a
+            // mock): silently picking one of them would be arbitrary, so
+            // fail with an explicit error instead (ST_04).
+            return Err(RatsdError::Custom(format!(
+                "multiple CCA reports found in RATSD response: {first}, {}",
+                label_text(&meta.key)
+            )));
+        }
+        found = Some((label_text(&meta.key), outblob));
     }
 
-    Err(RatsdError::Custom(
-        "CCA evidence not found in RATSD response".into(),
-    ))
+    match found {
+        Some((_, outblob)) => Ok(outblob),
+        None => Err(RatsdError::Custom(
+            "CCA evidence not found in RATSD response".into(),
+        )),
+    }
+}
+
+/// Human-readable CMW collection key, for error messages.
+fn label_text(label: &CmwLabel) -> String {
+    match label {
+        CmwLabel::Str(s) => s.clone(),
+        other => format!("{other:?}"),
+    }
 }
 
 /// Parse a `tsm-report+json` monad value (docs/tsm-report.cddl): a JSON
@@ -188,6 +209,11 @@ mod tests {
     /// Build a RATSD v2 token (COSE_Sign1-wrapped CMW collection, per
     /// ratsd-token.cddl) carrying a single leaf-attester record.
     fn build_v2_token(profile: &str, media_type: &str, value: Vec<u8>) -> Vec<u8> {
+        build_v2_token_with_items(profile, &[("mock-cca", media_type, value)])
+    }
+
+    /// Build a RATSD v2 token carrying the given leaf-attester records.
+    fn build_v2_token_with_items(profile: &str, items: &[(&str, &str, Vec<u8>)]) -> Vec<u8> {
         let mut collection =
             Collection::new(Some(CmwType::new(RATSD_CMWCT_V2).unwrap()), None).unwrap();
 
@@ -205,13 +231,13 @@ mod tests {
             )
             .unwrap();
 
-        let leaf_monad = Monad::new_media_type(media_type.parse().unwrap(), value, None).unwrap();
-        collection
-            .add_item(
-                CmwLabel::Str("mock-cca".to_string()),
-                CmwEnum::Monad(leaf_monad),
-            )
-            .unwrap();
+        for (key, media_type, value) in items {
+            let monad =
+                Monad::new_media_type(media_type.parse().unwrap(), value.clone(), None).unwrap();
+            collection
+                .add_item(CmwLabel::Str((*key).to_string()), CmwEnum::Monad(monad))
+                .unwrap();
+        }
 
         let payload = collection.marshal_cbor().unwrap();
         let sign1 = CoseSign1Builder::new().payload(payload).build();
@@ -367,5 +393,41 @@ mod tests {
             matches!(err, RatsdError::Custom(_)),
             "expected Custom error, got {err:?}"
         );
+    }
+
+    #[test]
+    fn extract_cca_token_rejects_multiple_cca_reports() {
+        // With more than one arm_cca_guest report loaded (e.g. a real
+        // tsm-report plus a mock), REGL must fail explicitly instead of
+        // silently returning the first item in collection-key order.
+        let token = build_v2_token_with_items(
+            RATSD_V2_PROFILE,
+            &[
+                (
+                    "mock-cca",
+                    RATSD_TSM_REPORT_JSON,
+                    build_tsm_report_json(CCA_PROVIDER, b"a"),
+                ),
+                (
+                    "tsm-report",
+                    RATSD_TSM_REPORT_JSON,
+                    build_tsm_report_json(CCA_PROVIDER, b"b"),
+                ),
+            ],
+        );
+        let err = extract_cca_token(&token).unwrap_err();
+        match err {
+            RatsdError::Custom(msg) => {
+                assert!(
+                    msg.contains("multiple CCA reports"),
+                    "unexpected message: {msg}"
+                );
+                assert!(
+                    msg.contains("mock-cca") && msg.contains("tsm-report"),
+                    "report names missing from: {msg}"
+                );
+            }
+            other => panic!("expected Custom error, got {other:?}"),
+        }
     }
 }
