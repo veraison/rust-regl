@@ -15,6 +15,7 @@ mod simulated;
 
 pub use ratsd::CcaRatsdAttester;
 pub use simulated::CcaSimulatedAttester;
+pub use utils::CcaTokenFormat;
 
 /// Arm CCA nonce size in bytes, as required by the CCA specification
 /// (https://datatracker.ietf.org/doc/draft-ffm-rats-cca-token/).

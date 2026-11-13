@@ -55,8 +55,7 @@ pub fn build_rak_cose_key(rak: &SigningKey) -> Result<Vec<u8>, CcaError> {
 
 /// Create a COSE_Sign1 (CBOR tag 18) over `payload` signed with `key`.
 ///
-/// Uses ES384 (ECDSA with SHA-384 on P-384) as the signing algorithm,
-/// deterministic nonce generation per RFC 6979 (built into the p384 crate).
+/// Uses ES384 (ECDSA with SHA-384 on P-384) as the signing algorithm.
 pub fn sign_cose_sign1(payload: &[u8], key: &SigningKey) -> Result<Vec<u8>, CcaError> {
     let protected = HeaderBuilder::new()
         .algorithm(coset::iana::Algorithm::ES384)
