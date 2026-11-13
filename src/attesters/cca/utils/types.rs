@@ -238,7 +238,7 @@ use ciborium::Value as CborValue;
 
 impl From<PlatformClaims> for CborValue {
     fn from(p: PlatformClaims) -> Self {
-        platform_to_cbor(p, CcaTokenFormat::Draft01)
+        platform_into_cbor(p, CcaTokenFormat::Draft01)
     }
 }
 
@@ -250,12 +250,12 @@ impl PlatformClaims {
     /// manufacturing-config, extension devices, tbb-rotpk and
     /// peer-signers.
     pub(super) fn into_cbor_2024(self) -> CborValue {
-        platform_to_cbor(self, CcaTokenFormat::Draft03)
+        platform_into_cbor(self, CcaTokenFormat::Draft03)
     }
 }
 
 #[allow(clippy::vec_init_then_push)]
-fn platform_to_cbor(p: PlatformClaims, format: CcaTokenFormat) -> CborValue {
+fn platform_into_cbor(p: PlatformClaims, format: CcaTokenFormat) -> CborValue {
     let mut m: Vec<(CborValue, CborValue)> = Vec::new();
 
     m.push((
@@ -351,13 +351,18 @@ fn platform_to_cbor(p: PlatformClaims, format: CcaTokenFormat) -> CborValue {
         if let Some(devices) = p.extension {
             m.push((
                 CborValue::Integer(PLAT_EXTENSION.into()),
-                CborValue::Array(devices.into_iter().map(extension_device_to_cbor).collect()),
+                CborValue::Array(
+                    devices
+                        .into_iter()
+                        .map(extension_device_into_cbor)
+                        .collect(),
+                ),
             ));
         }
         if let Some(items) = p.tbb_rotpk {
             m.push((
                 CborValue::Integer(PLAT_TBB_ROTPK.into()),
-                CborValue::Array(items.into_iter().map(tbb_rotpk_to_cbor).collect()),
+                CborValue::Array(items.into_iter().map(tbb_rotpk_into_cbor).collect()),
             ));
         }
         if let Some(v) = p.peer_signers {
@@ -372,7 +377,7 @@ fn platform_to_cbor(p: PlatformClaims, format: CcaTokenFormat) -> CborValue {
 }
 
 /// Convert an extension device entry into its CBOR map (draft-ffm-rats-cca-token-04).
-fn extension_device_to_cbor(d: ExtensionDevice) -> CborValue {
+fn extension_device_into_cbor(d: ExtensionDevice) -> CborValue {
     let mut m: Vec<(CborValue, CborValue)> = Vec::new();
     if let Some(algo) = d.hash_algo_id {
         m.push((
@@ -419,7 +424,7 @@ fn extension_device_to_cbor(d: ExtensionDevice) -> CborValue {
 ///
 /// Uses the current Evidence Profile numbering: 1 = name, 2 = index,
 /// 3 = hash.
-fn tbb_rotpk_to_cbor(t: TbbRotpkItem) -> CborValue {
+fn tbb_rotpk_into_cbor(t: TbbRotpkItem) -> CborValue {
     CborValue::Map(vec![
         (CborValue::Integer(TBB_NAME.into()), CborValue::Text(t.name)),
         (
@@ -435,7 +440,7 @@ fn tbb_rotpk_to_cbor(t: TbbRotpkItem) -> CborValue {
 
 impl From<RealmClaims> for CborValue {
     fn from(r: RealmClaims) -> Self {
-        realm_to_cbor(r, CcaTokenFormat::Draft01)
+        realm_into_cbor(r, CcaTokenFormat::Draft01)
     }
 }
 
@@ -445,11 +450,11 @@ impl RealmClaims {
     /// Emits the 2024-only claims (mec-policy, instance-id) as well as the
     /// claims shared with draft-ffm-rats-cca-token-01.
     pub(super) fn into_cbor_2024(self) -> CborValue {
-        realm_to_cbor(self, CcaTokenFormat::Draft03)
+        realm_into_cbor(self, CcaTokenFormat::Draft03)
     }
 }
 
-fn realm_to_cbor(r: RealmClaims, format: CcaTokenFormat) -> CborValue {
+fn realm_into_cbor(r: RealmClaims, format: CcaTokenFormat) -> CborValue {
     let mut m: Vec<(CborValue, CborValue)> = Vec::new();
 
     m.push((
