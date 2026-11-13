@@ -21,7 +21,7 @@ use ccatoken::token::{
 };
 use ciborium::Value as CborValue;
 use p384::ecdsa::SigningKey;
-use rand_core::OsRng;
+use p384::elliptic_curve::Generate;
 
 use super::constants::*;
 use super::crypto::{build_rak_cose_key, compute_hash, load_p384_jwk, sign_cose_sign1};
@@ -530,7 +530,7 @@ impl SimulatedTokenBuilder {
         let iak = load_p384_jwk(iak_jwk, "IAK")?;
         let rak = match rak_jwk {
             Some(jwk) => load_p384_jwk(jwk, "RAK")?,
-            None => SigningKey::random(&mut OsRng),
+            None => SigningKey::generate(),
         };
 
         Ok(Self {
@@ -673,8 +673,8 @@ mod tests {
     #[test]
     fn builder_with_keys_succeeds() {
         let claims = load_test_claims();
-        let iak = SigningKey::random(&mut OsRng);
-        let rak = SigningKey::random(&mut OsRng);
+        let iak = SigningKey::generate();
+        let rak = SigningKey::generate();
         let builder = SimulatedTokenBuilder::with_keys(&claims, iak, rak);
         assert!(builder.is_ok());
     }

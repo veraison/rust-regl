@@ -7,22 +7,71 @@
 //! and SHA-2 hashing.
 
 use coset::{AsCborValue, CoseKeyBuilder, CoseSign1Builder, HeaderBuilder};
-use ecdsa::signature::Signer;
 use p384::SecretKey;
+use p384::ecdsa::signature::Signer;
 use p384::ecdsa::{Signature, SigningKey};
-use p384::elliptic_curve::JwkEcKey;
 use sha2::{Digest, Sha256, Sha384, Sha512};
 
 use crate::attesters::cca::CcaError;
 
-/// Load a P-384 JWK private key from a JSON string.
+/// Load a P-384 signing key from a JWK (RFC 7517) JSON string.
+///
+/// `kty` must be `EC`, `crv` must be `P-384`, and `x`/`y` must belong to `d`.
 pub fn load_p384_jwk(jwk_json: &str, label: &str) -> Result<SigningKey, CcaError> {
-    let jwk: JwkEcKey = jwk_json
-        .parse()
+    #[derive(serde::Deserialize)]
+    struct EcPrivateJwk {
+        kty: String,
+        crv: String,
+        x: String,
+        y: String,
+        d: Option<String>,
+    }
+
+    let jwk: EcPrivateJwk = serde_json::from_str(jwk_json)
         .map_err(|e| CcaError::custom(format!("parsing {label} JWK: {e}")))?;
-    let secret = SecretKey::from_jwk(&jwk)
+
+    if jwk.kty != "EC" || jwk.crv != "P-384" {
+        return Err(CcaError::custom(format!(
+            "{label} JWK to secret key: expected kty EC and crv P-384, got kty {} and crv {}",
+            jwk.kty, jwk.crv
+        )));
+    }
+
+    let d = jwk.d.ok_or_else(|| {
+        CcaError::custom(format!(
+            "{label} JWK to secret key: the JWK carries no private scalar (d)"
+        ))
+    })?;
+
+    use base64::Engine as _;
+    let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let scalar = engine
+        .decode(d.trim_end_matches('='))
+        .map_err(|e| CcaError::custom(format!("{label} JWK to secret key: decoding d: {e}")))?;
+    let secret = SecretKey::from_slice(&scalar)
         .map_err(|e| CcaError::custom(format!("{label} JWK to secret key: {e}")))?;
-    Ok(SigningKey::from(secret))
+    let signing_key = SigningKey::from(secret);
+
+    let jwk_x = engine
+        .decode(jwk.x.trim_end_matches('='))
+        .map_err(|e| CcaError::custom(format!("{label} JWK to secret key: decoding x: {e}")))?;
+    let jwk_y = engine
+        .decode(jwk.y.trim_end_matches('='))
+        .map_err(|e| CcaError::custom(format!("{label} JWK to secret key: decoding y: {e}")))?;
+
+    let point = signing_key.verifying_key().to_sec1_point(false);
+    match (point.x(), point.y()) {
+        (Some(px), Some(py))
+            if px.as_slice() == jwk_x.as_slice() && py.as_slice() == jwk_y.as_slice() => {}
+        _ => {
+            return Err(CcaError::custom(format!(
+                "{label} JWK to secret key: x and y do not belong to the private scalar d"
+            )));
+        }
+    }
+
+    Ok(signing_key)
 }
 
 /// Build a COSE_Key (CBOR-encoded) from a P-384 signing key's public part.
@@ -30,7 +79,7 @@ pub fn load_p384_jwk(jwk_json: &str, label: &str) -> Result<SigningKey, CcaError
 /// Returns the raw CBOR bytes of the COSE_Key map.
 pub fn build_rak_cose_key(rak: &SigningKey) -> Result<Vec<u8>, CcaError> {
     let verifying_key = rak.verifying_key();
-    let point = verifying_key.to_encoded_point(false);
+    let point = verifying_key.to_sec1_point(false);
     let x = point
         .x()
         .ok_or_else(|| CcaError::custom("RAK public key x coordinate".to_string()))?;
@@ -100,7 +149,7 @@ pub fn compute_hash(data: &[u8], algo: &str) -> Result<Vec<u8>, CcaError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand_core::OsRng;
+    use p384::elliptic_curve::Generate;
 
     // -----------------------------------------------------------------------
     // compute_hash
@@ -150,7 +199,7 @@ mod tests {
 
     #[test]
     fn sign_cose_sign1_produces_non_empty_output() {
-        let key = SigningKey::random(&mut OsRng);
+        let key = SigningKey::generate();
         let payload = b"test payload for signing";
         let signed = sign_cose_sign1(payload, &key).unwrap();
         assert!(!signed.is_empty());
@@ -158,7 +207,7 @@ mod tests {
 
     #[test]
     fn sign_cose_sign1_is_deterministic() {
-        let key = SigningKey::random(&mut OsRng);
+        let key = SigningKey::generate();
         let payload = b"deterministic test";
         let sig1 = sign_cose_sign1(payload, &key).unwrap();
         let sig2 = sign_cose_sign1(payload, &key).unwrap();
@@ -167,7 +216,7 @@ mod tests {
 
     #[test]
     fn sign_cose_sign1_different_payloads_differ() {
-        let key = SigningKey::random(&mut OsRng);
+        let key = SigningKey::generate();
         let sig_a = sign_cose_sign1(b"payload A", &key).unwrap();
         let sig_b = sign_cose_sign1(b"payload B", &key).unwrap();
         assert_ne!(sig_a, sig_b);
@@ -179,14 +228,14 @@ mod tests {
 
     #[test]
     fn build_rak_cose_key_produces_cbor() {
-        let key = SigningKey::random(&mut OsRng);
+        let key = SigningKey::generate();
         let cose_key_bytes = build_rak_cose_key(&key).unwrap();
         assert!(!cose_key_bytes.is_empty());
     }
 
     #[test]
     fn build_rak_cose_key_is_deterministic() {
-        let key = SigningKey::random(&mut OsRng);
+        let key = SigningKey::generate();
         let k1 = build_rak_cose_key(&key).unwrap();
         let k2 = build_rak_cose_key(&key).unwrap();
         assert_eq!(k1, k2);
@@ -210,6 +259,50 @@ mod tests {
     fn load_p384_jwk_valid_key_succeeds() {
         let key = load_p384_jwk(test_iak_jwk(), "IAK");
         assert!(key.is_ok(), "expected Ok, got {:?}", key.err());
+    }
+
+    #[test]
+    fn load_p384_jwk_rejects_other_curves() {
+        let jwk = test_iak_jwk().replace("\"P-384\"", "\"P-256\"");
+        let err = load_p384_jwk(&jwk, "IAK").unwrap_err();
+        assert!(
+            format!("{err}").contains("expected kty EC and crv P-384"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn load_p384_jwk_rejects_other_key_types() {
+        let jwk = test_iak_jwk().replace("\"EC\"", "\"OKP\"");
+        let err = load_p384_jwk(&jwk, "RAK").unwrap_err();
+        assert!(
+            format!("{err}").contains("expected kty EC and crv P-384"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn load_p384_jwk_rejects_public_key_that_does_not_match_d() {
+        let mut jwk: serde_json::Value = serde_json::from_str(test_iak_jwk()).unwrap();
+        let (x, y) = (jwk["x"].clone(), jwk["y"].clone());
+        jwk["x"] = y;
+        jwk["y"] = x;
+        let err = load_p384_jwk(&jwk.to_string(), "IAK").unwrap_err();
+        assert!(
+            format!("{err}").contains("do not belong to the private scalar"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn load_p384_jwk_rejects_public_only_jwk() {
+        let mut jwk: serde_json::Value = serde_json::from_str(test_iak_jwk()).unwrap();
+        jwk.as_object_mut().unwrap().remove("d");
+        let err = load_p384_jwk(&jwk.to_string(), "IAK").unwrap_err();
+        assert!(
+            format!("{err}").contains("no private scalar"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

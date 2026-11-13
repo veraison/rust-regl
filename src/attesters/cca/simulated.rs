@@ -173,10 +173,10 @@ mod tests {
     #[test]
     fn with_keys_produces_valid_attester_and_token() {
         use p384::ecdsa::SigningKey;
-        use rand_core::OsRng;
+        use p384::elliptic_curve::Generate;
         let claims = load_test_claims_2024();
-        let iak = SigningKey::random(&mut OsRng);
-        let rak = SigningKey::random(&mut OsRng);
+        let iak = SigningKey::generate();
+        let rak = SigningKey::generate();
         let attester = CcaSimulatedAttester::with_keys(&claims, iak, rak).unwrap();
         let evidence = attester.get_evidence(&[0u8; 64]).unwrap();
         assert!(!evidence.is_empty());
