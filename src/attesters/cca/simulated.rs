@@ -3,15 +3,19 @@
 
 //! Simulated CCA attester - Rust equivalent of `evcli cca create`.
 //!
-//! Builds a structurally valid CCA token (CBOR tag 399) with two
-//! COSE_Sign1 tokens (platform + realm) signed with ES384.
+//! Builds a structurally valid CCA token with two COSE_Sign1 tokens
+//! (platform + realm) signed with ES384. The default framing is
+//! draft-ffm-03 (CBOR tag 907 CMW collection, 2024 profiles); the legacy
+//! draft-01 framing (CBOR tag 399, 2023 profiles) can be selected via
+//! [`CcaTokenFormat::Draft01`] (see
+//! [`CcaSimulatedAttester::new_with_format`]).
 //!
 //! The application is responsible for reading files and passing their contents
 //! to the builder - no environment variables are read by the library itself.
 
 use super::Attester;
 use super::CcaError;
-use super::utils::SimulatedTokenBuilder;
+use super::utils::{CcaTokenFormat, SimulatedTokenBuilder};
 use p384::ecdsa::SigningKey;
 
 /// Simulated CCA attester that builds tokens from JSON claims and JWK key texts.
@@ -23,24 +27,54 @@ pub struct CcaSimulatedAttester {
 impl CcaSimulatedAttester {
     /// Create a new simulated attester from JSON claims and JWK key texts.
     ///
+    /// Tokens are created in the draft-ffm-03 framing (CBOR tag 907 CMW
+    /// collection, 2024 profiles) by default; use [`Self::new_with_format`]
+    /// to create legacy draft-01 tokens instead.
+    ///
     /// See [`SimulatedTokenBuilder::new`] for parameter details.
     pub fn new(claims_json: &str, iak_jwk: &str, rak_jwk: Option<&str>) -> Result<Self, CcaError> {
+        Self::new_with_format(CcaTokenFormat::default(), claims_json, iak_jwk, rak_jwk)
+    }
+
+    /// Create a new simulated attester with an explicit token framing.
+    ///
+    /// Pass [`CcaTokenFormat::Draft01`] to create legacy draft-01 tokens
+    /// (CBOR tag 399, 2023 profiles); the claims passed in must match the
+    /// selected profile era.
+    pub fn new_with_format(
+        format: CcaTokenFormat,
+        claims_json: &str,
+        iak_jwk: &str,
+        rak_jwk: Option<&str>,
+    ) -> Result<Self, CcaError> {
         Ok(Self {
-            builder: SimulatedTokenBuilder::new(claims_json, iak_jwk, rak_jwk)?,
+            builder: SimulatedTokenBuilder::new(claims_json, iak_jwk, rak_jwk)?.with_format(format),
         })
     }
 
     /// Create a new simulated attester from JSON claims and P-384 [`SigningKey`]s.
     ///
     /// This constructor accepts COSE keys directly, skipping the JWK
-    /// parsing step.
+    /// parsing step. Tokens are created in the draft-ffm-03 framing (2024
+    /// profiles) by default.
     pub fn with_keys(
         claims_json: &str,
         iak: SigningKey,
         rak: SigningKey,
     ) -> Result<Self, CcaError> {
+        Self::with_keys_and_format(CcaTokenFormat::default(), claims_json, iak, rak)
+    }
+
+    /// Create a new simulated attester from P-384 [`SigningKey`]s with an
+    /// explicit token framing.
+    pub fn with_keys_and_format(
+        format: CcaTokenFormat,
+        claims_json: &str,
+        iak: SigningKey,
+        rak: SigningKey,
+    ) -> Result<Self, CcaError> {
         Ok(Self {
-            builder: SimulatedTokenBuilder::with_keys(claims_json, iak, rak)?,
+            builder: SimulatedTokenBuilder::with_keys(claims_json, iak, rak)?.with_format(format),
         })
     }
 }
@@ -71,6 +105,20 @@ mod tests {
 
     fn load_test_claims() -> String {
         std::fs::read_to_string("test-data/cca-claims.json").unwrap()
+    }
+
+    fn load_test_claims_2024() -> String {
+        std::fs::read_to_string("test-data/cca-claims-2024.json").unwrap()
+    }
+
+    /// CBOR tag of the outer token framing (399 legacy / 907 CMW).
+    fn outer_tag(token: &[u8]) -> u64 {
+        let value: ciborium::Value =
+            ciborium::from_reader(token).expect("evidence should be valid CBOR");
+        match value {
+            ciborium::Value::Tag(tag, _) => tag,
+            other => panic!("expected a CBOR tag, got {other:?}"),
+        }
     }
 
     fn load_test_iak() -> String {
@@ -126,7 +174,7 @@ mod tests {
     fn with_keys_produces_valid_attester_and_token() {
         use p384::ecdsa::SigningKey;
         use rand_core::OsRng;
-        let claims = load_test_claims();
+        let claims = load_test_claims_2024();
         let iak = SigningKey::random(&mut OsRng);
         let rak = SigningKey::random(&mut OsRng);
         let attester = CcaSimulatedAttester::with_keys(&claims, iak, rak).unwrap();
@@ -140,7 +188,7 @@ mod tests {
 
     #[test]
     fn get_evidence_returns_valid_token() {
-        let claims = load_test_claims();
+        let claims = load_test_claims_2024();
         let iak = load_test_iak();
         let rak = load_test_rak();
         let attester = CcaSimulatedAttester::new(&claims, &iak, Some(&rak)).unwrap();
@@ -150,7 +198,7 @@ mod tests {
 
     #[test]
     fn get_evidence_different_nonce_produces_different_token() {
-        let claims = load_test_claims();
+        let claims = load_test_claims_2024();
         let iak = load_test_iak();
         let rak = load_test_rak();
         let attester = CcaSimulatedAttester::new(&claims, &iak, Some(&rak)).unwrap();
@@ -161,7 +209,7 @@ mod tests {
 
     #[test]
     fn get_evidence_same_nonce_is_deterministic() {
-        let claims = load_test_claims();
+        let claims = load_test_claims_2024();
         let iak = load_test_iak();
         let rak = load_test_rak();
         let attester = CcaSimulatedAttester::new(&claims, &iak, Some(&rak)).unwrap();
@@ -192,5 +240,37 @@ mod tests {
         let attester = CcaSimulatedAttester::new(&claims, &iak, Some(&rak)).unwrap();
         let err = attester.get_evidence(&[0u8; 65]).unwrap_err();
         assert!(matches!(err, CcaError::InvalidNonce(_)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Token framing
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn default_format_emits_tag_907() {
+        let claims = load_test_claims_2024();
+        let iak = load_test_iak();
+        let rak = load_test_rak();
+        let evidence = CcaSimulatedAttester::new(&claims, &iak, Some(&rak))
+            .unwrap()
+            .get_evidence(&[0u8; 64])
+            .unwrap();
+        assert_eq!(outer_tag(&evidence), 907);
+    }
+
+    #[test]
+    fn legacy_format_opt_in_emits_tag_399() {
+        let claims = load_test_claims();
+        let iak = load_test_iak();
+        let rak = load_test_rak();
+        let attester = CcaSimulatedAttester::new_with_format(
+            CcaTokenFormat::Draft01,
+            &claims,
+            &iak,
+            Some(&rak),
+        )
+        .unwrap();
+        let evidence = attester.get_evidence(&[0u8; 64]).unwrap();
+        assert_eq!(outer_tag(&evidence), 399);
     }
 }

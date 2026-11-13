@@ -3,7 +3,7 @@
 
 use clap::{Parser, ValueEnum};
 use log::{error, info};
-use regl::attesters::cca::utils::pretty_print_token;
+use regl::attesters::cca::utils::{CcaTokenFormat, pretty_print_token};
 use regl::attesters::{Attester, cca, cca::CcaError};
 use std::fs;
 
@@ -31,10 +31,17 @@ enum AttesterType {
 }
 
 fn create_sim_attester() -> Box<dyn Attester<AttesterError = CcaError>> {
-    let claims_path =
-        std::env::var("CCA_CLAIMS_FILE").unwrap_or_else(|_| "test-data/cca-claims.json".into());
+    let claims_path = std::env::var("CCA_CLAIMS_FILE")
+        .unwrap_or_else(|_| "test-data/cca-claims-2024.json".into());
     let iak_path = std::env::var("CCA_IAK_FILE").unwrap_or_else(|_| "test-data/iak.jwk".into());
     let rak_path = std::env::var("CCA_RAK_FILE").ok();
+
+    // CCA_TOKEN_FORMAT=draft-01 selects the legacy tag 399 framing; the
+    // default is the draft-ffm-03 framing (CBOR tag 907, 2024 profiles).
+    let format = match std::env::var("CCA_TOKEN_FORMAT").as_deref() {
+        Ok("draft-01") => CcaTokenFormat::Draft01,
+        _ => CcaTokenFormat::Draft03,
+    };
 
     let claims =
         fs::read_to_string(&claims_path).unwrap_or_else(|e| panic!("reading {claims_path}: {e}"));
@@ -44,7 +51,7 @@ fn create_sim_attester() -> Box<dyn Attester<AttesterError = CcaError>> {
         .map(|p| fs::read_to_string(p).unwrap_or_else(|e| panic!("reading {p}: {e}")));
 
     Box::new(
-        cca::CcaSimulatedAttester::new(&claims, &iak, rak.as_deref())
+        cca::CcaSimulatedAttester::new_with_format(format, &claims, &iak, rak.as_deref())
             .expect("failed to create simulated attester"),
     )
 }

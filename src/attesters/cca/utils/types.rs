@@ -204,14 +204,16 @@ pub struct ExtensionDevice {
 
 /// A single TBB root-of-trust-public-key entry (`cca-platform-tbb-rotpk`,
 /// draft-ffm-03).
+///
+/// Item keys: 1 = name, 2 = index, 3 = hash. The `active-array-index`
+/// claim was removed from the CCA Evidence Profile and the remaining keys
+/// were renumbered, so the JSON input no longer accepts an
+/// `active-array-index` field (`deny_unknown_fields`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TbbRotpkItem {
     #[serde(rename = "name")]
     pub name: String,
-
-    #[serde(rename = "active-array-index")]
-    pub active_array_index: u64,
 
     #[serde(rename = "index")]
     pub index: u64,
@@ -231,140 +233,283 @@ pub struct TbbRotpkItem {
 // ---------------------------------------------------------------------------
 
 use super::constants::*;
+use super::encode::CcaTokenFormat;
 use ciborium::Value as CborValue;
 
 impl From<PlatformClaims> for CborValue {
-    #[allow(clippy::vec_init_then_push)]
     fn from(p: PlatformClaims) -> Self {
-        let mut m: Vec<(CborValue, CborValue)> = Vec::new();
-
-        m.push((
-            CborValue::Integer(PLAT_CHALLENGE.into()),
-            CborValue::Bytes(p.challenge),
-        ));
-        m.push((
-            CborValue::Integer(PLAT_INSTANCE_ID.into()),
-            CborValue::Bytes(p.instance_id),
-        ));
-        m.push((
-            CborValue::Integer(PLAT_PROFILE.into()),
-            CborValue::Text(p.profile),
-        ));
-        m.push((
-            CborValue::Integer(PLAT_LIFECYCLE.into()),
-            CborValue::Integer(p.lifecycle.into()),
-        ));
-        m.push((
-            CborValue::Integer(PLAT_IMPLEMENTATION_ID.into()),
-            CborValue::Bytes(p.implementation_id),
-        ));
-
-        // Software components.
-        let components: Vec<CborValue> = p
-            .sw_components
-            .into_iter()
-            .map(|c| {
-                let mut cm: Vec<(CborValue, CborValue)> = Vec::new();
-                if let Some(t) = c.measurement_type {
-                    cm.push((
-                        CborValue::Integer(SW_MEASUREMENT_TYPE.into()),
-                        CborValue::Text(t),
-                    ));
-                }
-                cm.push((
-                    CborValue::Integer(SW_MEASUREMENT_VALUE.into()),
-                    CborValue::Bytes(c.measurement_value),
-                ));
-                if let Some(v) = c.version {
-                    cm.push((CborValue::Integer(SW_VERSION.into()), CborValue::Text(v)));
-                }
-                cm.push((
-                    CborValue::Integer(SW_SIGNER_ID.into()),
-                    CborValue::Bytes(c.signer_id),
-                ));
-                if let Some(d) = c.measurement_description {
-                    cm.push((
-                        CborValue::Integer(SW_MEASUREMENT_DESC.into()),
-                        CborValue::Text(d),
-                    ));
-                }
-                CborValue::Map(cm)
-            })
-            .collect();
-        m.push((
-            CborValue::Integer(PLAT_SW_COMPONENTS.into()),
-            CborValue::Array(components),
-        ));
-
-        if let Some(v) = p.service_indicator {
-            m.push((
-                CborValue::Integer(PLAT_SERVICE_INDICATOR.into()),
-                CborValue::Text(v),
-            ));
-        }
-        m.push((
-            CborValue::Integer(PLAT_CONFIG.into()),
-            CborValue::Bytes(p.config),
-        ));
-        if let Some(algo) = p.hash_algo_id {
-            m.push((
-                CborValue::Integer(PLAT_HASH_ALGO.into()),
-                CborValue::Text(algo),
-            ));
-        }
-
-        CborValue::Map(m)
+        platform_to_cbor(p, CcaTokenFormat::Draft01)
     }
+}
+
+impl PlatformClaims {
+    /// Convert into the draft-ffm-03 (2024 profile) CBOR claim set.
+    ///
+    /// In addition to the claims shared with draft-ffm-rats-cca-token-01,
+    /// this emits the 2024-only claims: client-id (always 1),
+    /// manufacturing-config, extension devices, tbb-rotpk and
+    /// peer-signers.
+    pub(super) fn into_cbor_2024(self) -> CborValue {
+        platform_to_cbor(self, CcaTokenFormat::Draft03)
+    }
+}
+
+#[allow(clippy::vec_init_then_push)]
+fn platform_to_cbor(p: PlatformClaims, format: CcaTokenFormat) -> CborValue {
+    let mut m: Vec<(CborValue, CborValue)> = Vec::new();
+
+    m.push((
+        CborValue::Integer(PLAT_CHALLENGE.into()),
+        CborValue::Bytes(p.challenge),
+    ));
+    m.push((
+        CborValue::Integer(PLAT_INSTANCE_ID.into()),
+        CborValue::Bytes(p.instance_id),
+    ));
+    m.push((
+        CborValue::Integer(PLAT_PROFILE.into()),
+        CborValue::Text(p.profile),
+    ));
+    m.push((
+        CborValue::Integer(PLAT_LIFECYCLE.into()),
+        CborValue::Integer(p.lifecycle.into()),
+    ));
+    m.push((
+        CborValue::Integer(PLAT_IMPLEMENTATION_ID.into()),
+        CborValue::Bytes(p.implementation_id),
+    ));
+
+    // Software components.
+    let components: Vec<CborValue> = p
+        .sw_components
+        .into_iter()
+        .map(|c| {
+            let mut cm: Vec<(CborValue, CborValue)> = Vec::new();
+            if let Some(t) = c.measurement_type {
+                cm.push((
+                    CborValue::Integer(SW_MEASUREMENT_TYPE.into()),
+                    CborValue::Text(t),
+                ));
+            }
+            cm.push((
+                CborValue::Integer(SW_MEASUREMENT_VALUE.into()),
+                CborValue::Bytes(c.measurement_value),
+            ));
+            if let Some(v) = c.version {
+                cm.push((CborValue::Integer(SW_VERSION.into()), CborValue::Text(v)));
+            }
+            cm.push((
+                CborValue::Integer(SW_SIGNER_ID.into()),
+                CborValue::Bytes(c.signer_id),
+            ));
+            if let Some(d) = c.measurement_description {
+                cm.push((
+                    CborValue::Integer(SW_MEASUREMENT_DESC.into()),
+                    CborValue::Text(d),
+                ));
+            }
+            CborValue::Map(cm)
+        })
+        .collect();
+    m.push((
+        CborValue::Integer(PLAT_SW_COMPONENTS.into()),
+        CborValue::Array(components),
+    ));
+
+    if let Some(v) = p.service_indicator {
+        m.push((
+            CborValue::Integer(PLAT_SERVICE_INDICATOR.into()),
+            CborValue::Text(v),
+        ));
+    }
+    m.push((
+        CborValue::Integer(PLAT_CONFIG.into()),
+        CborValue::Bytes(p.config),
+    ));
+    if let Some(algo) = p.hash_algo_id {
+        m.push((
+            CborValue::Integer(PLAT_HASH_ALGO.into()),
+            CborValue::Text(algo),
+        ));
+    }
+
+    if format == CcaTokenFormat::Draft03 {
+        // cca-platform-client-id is MANDATORY in the 2024 profile and the
+        // specification only allows the value 1 (the validator rejects any
+        // other value); emit the validated literal (ciborium integers do
+        // not cover the i128 range the struct field mirrors).
+        m.push((
+            CborValue::Integer(PLAT_CLIENT_ID.into()),
+            CborValue::Integer(1_u64.into()),
+        ));
+        if let Some(v) = p.manufacturing_config {
+            m.push((
+                CborValue::Integer(PLAT_MANUFACTURING_CONFIG.into()),
+                CborValue::Bytes(v),
+            ));
+        }
+        if let Some(devices) = p.extension {
+            m.push((
+                CborValue::Integer(PLAT_EXTENSION.into()),
+                CborValue::Array(devices.into_iter().map(extension_device_to_cbor).collect()),
+            ));
+        }
+        if let Some(items) = p.tbb_rotpk {
+            m.push((
+                CborValue::Integer(PLAT_TBB_ROTPK.into()),
+                CborValue::Array(items.into_iter().map(tbb_rotpk_to_cbor).collect()),
+            ));
+        }
+        if let Some(v) = p.peer_signers {
+            m.push((
+                CborValue::Integer(PLAT_PEER_SIGNERS.into()),
+                CborValue::Bytes(v),
+            ));
+        }
+    }
+
+    CborValue::Map(m)
+}
+
+/// Convert an extension device entry into its CBOR map (draft-ffm-03).
+fn extension_device_to_cbor(d: ExtensionDevice) -> CborValue {
+    let mut m: Vec<(CborValue, CborValue)> = Vec::new();
+    if let Some(algo) = d.hash_algo_id {
+        m.push((
+            CborValue::Integer(EXT_HASH_ALGO.into()),
+            CborValue::Text(algo),
+        ));
+    }
+    m.push((
+        CborValue::Integer(EXT_DEVICE_MEASUREMENTS_DIGEST.into()),
+        CborValue::Bytes(d.device_measurements_digest),
+    ));
+    m.push((
+        CborValue::Integer(EXT_CERTIFICATE_CHAIN_DIGEST.into()),
+        CborValue::Bytes(d.certificate_chain_digest),
+    ));
+    m.push((
+        CborValue::Integer(EXT_USES_IDE.into()),
+        CborValue::Bool(d.uses_ide),
+    ));
+    m.push((
+        CborValue::Integer(EXT_PROTOCOL.into()),
+        CborValue::Text(d.protocol),
+    ));
+    if let Some(v) = d.vca_digest {
+        m.push((
+            CborValue::Integer(EXT_VCA_DIGEST.into()),
+            CborValue::Bytes(v),
+        ));
+    }
+    m.push((
+        CborValue::Integer(EXT_DEVICE_TYPE.into()),
+        CborValue::Text(d.device_type),
+    ));
+    if let Some(e) = d.encryption_type {
+        m.push((
+            CborValue::Integer(EXT_ENCRYPTION_TYPE.into()),
+            CborValue::Integer(e.into()),
+        ));
+    }
+    CborValue::Map(m)
+}
+
+/// Convert a TBB RoTPK item into its CBOR map (draft-ffm-03).
+///
+/// Uses the current Evidence Profile numbering: 1 = name, 2 = index,
+/// 3 = hash.
+fn tbb_rotpk_to_cbor(t: TbbRotpkItem) -> CborValue {
+    CborValue::Map(vec![
+        (CborValue::Integer(TBB_NAME.into()), CborValue::Text(t.name)),
+        (
+            CborValue::Integer(TBB_INDEX.into()),
+            CborValue::Integer(t.index.into()),
+        ),
+        (
+            CborValue::Integer(TBB_HASH.into()),
+            CborValue::Bytes(t.hash),
+        ),
+    ])
 }
 
 impl From<RealmClaims> for CborValue {
     fn from(r: RealmClaims) -> Self {
-        let mut m: Vec<(CborValue, CborValue)> = Vec::new();
+        realm_to_cbor(r, CcaTokenFormat::Draft01)
+    }
+}
 
+impl RealmClaims {
+    /// Convert into the draft-ffm-03 (2024 profile) CBOR claim set.
+    ///
+    /// Emits the 2024-only claims (mec-policy, instance-id) as well as the
+    /// claims shared with draft-ffm-rats-cca-token-01.
+    pub(super) fn into_cbor_2024(self) -> CborValue {
+        realm_to_cbor(self, CcaTokenFormat::Draft03)
+    }
+}
+
+fn realm_to_cbor(r: RealmClaims, format: CcaTokenFormat) -> CborValue {
+    let mut m: Vec<(CborValue, CborValue)> = Vec::new();
+
+    m.push((
+        CborValue::Integer(REALM_CHALLENGE.into()),
+        CborValue::Bytes(r.challenge),
+    ));
+    if let Some(profile) = r.profile {
         m.push((
-            CborValue::Integer(REALM_CHALLENGE.into()),
-            CborValue::Bytes(r.challenge),
+            CborValue::Integer(REALM_PROFILE.into()),
+            CborValue::Text(profile),
         ));
-        if let Some(profile) = r.profile {
+    }
+    m.push((
+        CborValue::Integer(REALM_PERSONALIZATION.into()),
+        CborValue::Bytes(r.personalization_value),
+    ));
+    m.push((
+        CborValue::Integer(REALM_HASH_ALGO.into()),
+        CborValue::Text(r.hash_algo_id),
+    ));
+    m.push((
+        CborValue::Integer(REALM_PUBLIC_KEY.into()),
+        CborValue::Bytes(r.public_key),
+    ));
+    m.push((
+        CborValue::Integer(REALM_INITIAL_MEASUREMENT.into()),
+        CborValue::Bytes(r.initial_measurement),
+    ));
+
+    let ext: Vec<CborValue> = r
+        .extensible_measurements
+        .into_iter()
+        .map(CborValue::Bytes)
+        .collect();
+    m.push((
+        CborValue::Integer(REALM_EXTENSIBLE_MEASUREMENTS.into()),
+        CborValue::Array(ext),
+    ));
+
+    m.push((
+        CborValue::Integer(REALM_PUBLIC_KEY_HASH_ALGO.into()),
+        CborValue::Text(r.public_key_hash_algo_id),
+    ));
+
+    if format == CcaTokenFormat::Draft03 {
+        if let Some(policy) = r.mec_policy {
             m.push((
-                CborValue::Integer(REALM_PROFILE.into()),
-                CborValue::Text(profile),
+                CborValue::Integer(REALM_MEC_POLICY.into()),
+                CborValue::Integer(policy.into()),
             ));
         }
-        m.push((
-            CborValue::Integer(REALM_PERSONALIZATION.into()),
-            CborValue::Bytes(r.personalization_value),
-        ));
-        m.push((
-            CborValue::Integer(REALM_HASH_ALGO.into()),
-            CborValue::Text(r.hash_algo_id),
-        ));
-        m.push((
-            CborValue::Integer(REALM_PUBLIC_KEY.into()),
-            CborValue::Bytes(r.public_key),
-        ));
-        m.push((
-            CborValue::Integer(REALM_INITIAL_MEASUREMENT.into()),
-            CborValue::Bytes(r.initial_measurement),
-        ));
-
-        let ext: Vec<CborValue> = r
-            .extensible_measurements
-            .into_iter()
-            .map(CborValue::Bytes)
-            .collect();
-        m.push((
-            CborValue::Integer(REALM_EXTENSIBLE_MEASUREMENTS.into()),
-            CborValue::Array(ext),
-        ));
-
-        m.push((
-            CborValue::Integer(REALM_PUBLIC_KEY_HASH_ALGO.into()),
-            CborValue::Text(r.public_key_hash_algo_id),
-        ));
-
-        CborValue::Map(m)
+        if let Some(id) = r.instance_id {
+            m.push((
+                CborValue::Integer(REALM_INSTANCE_ID.into()),
+                CborValue::Bytes(id),
+            ));
+        }
     }
+
+    CborValue::Map(m)
 }
 
 // ---------------------------------------------------------------------------
@@ -465,7 +610,6 @@ impl From<CcaTbbRotpkItem> for TbbRotpkItem {
     fn from(t: CcaTbbRotpkItem) -> Self {
         TbbRotpkItem {
             name: t.name,
-            active_array_index: t.active_array_index as u64,
             index: t.index as u64,
             hash: t.hash,
         }

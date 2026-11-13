@@ -268,7 +268,7 @@ dependencies = [
 [[package]]
 name = "ccatoken"
 version = "0.1.0"
-source = "git+https://github.com/veraison/rust-ccatoken.git?rev=e3591c87dbdfc3f4c71c4a72fbcb03e121f65f55#e3591c87dbdfc3f4c71c4a72fbcb03e121f65f55"
+source = "git+https://github.com/veraison/rust-ccatoken.git?rev=ce0b02b3714cca7d86b2005470b6751d0d0dc69f#ce0b02b3714cca7d86b2005470b6751d0d0dc69f"
 dependencies = [
  "base64 0.23.1",
  "bitflags 2.13.0",

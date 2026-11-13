@@ -47,7 +47,9 @@ mod tests {
     }
 
     /// draft-ffm-03 (2024 profile) token carrying every claim; taken from
-    /// the upstream `rust-ccatoken` test data (Apache-2.0, commit d1b66e7).
+    /// the upstream `rust-ccatoken` test data (Apache-2.0,
+    /// `testdata/token-2024/cca-token-draft-ffm-03-all-claims.cbor` at
+    /// upstream main `ce0b02b`).
     fn mock_evidence_ffm03() -> &'static [u8] {
         include_bytes!("../data/evidence-ffm-03.cbor")
     }
@@ -94,13 +96,13 @@ mod tests {
                 .as_ref()
                 .is_some_and(|v| v.len() == 2)
         );
-        assert!(
-            token
-                .platform
-                .tbb_rotpk
-                .as_ref()
-                .is_some_and(|v| v.len() == 1)
-        );
+        let tbb = token.platform.tbb_rotpk.as_ref().expect("tbb-rotpk claim");
+        // The current Evidence Profile shape: name, index and hash only
+        // (active-array-index was removed and the keys renumbered).
+        assert_eq!(tbb.len(), 1);
+        assert_eq!(tbb[0].name, "DM");
+        assert_eq!(tbb[0].index, 0);
+        assert_eq!(tbb[0].hash, vec![0x07u8; 32]);
         assert_eq!(token.realm.mec_policy, Some(1));
         assert!(
             token
@@ -137,7 +139,7 @@ mod print_tests {
 
     #[test]
     fn pretty_print_token_produces_valid_json_with_expected_keys() {
-        let claims = fs::read_to_string("test-data/cca-claims.json").unwrap();
+        let claims = fs::read_to_string("test-data/cca-claims-2024.json").unwrap();
         let iak = fs::read_to_string("test-data/iak.jwk").unwrap();
         let rak = fs::read_to_string("test-data/rak.jwk").unwrap();
 
