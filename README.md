@@ -8,7 +8,7 @@ RATS Evidence Generation Library (REGL) - collects attestation evidence from TEE
 |---|---|---|---|
 | `cca-tsm` | `CcaTsmAttester` | Linux TSM (`/sys/kernel/config/tsm`) | Talks directly to the kernel TSM interface on Arm CCA hardware. Requires root. |
 | `cca-ratsd` | `CcaRatsdAttester` | RATSD daemon | Posts a challenge to a [RATSD](https://github.com/veraison/ratsd) daemon and extracts the CCA attestation token from its CMW collection. |
-| `cca-sim` | `CcaSimulatedAttester` | Pure Rust | Builds a CCA token from JSON claims and JWK keys with ES384 COSE_Sign1 signatures. No hardware needed. |
+| `cca-sim` | `CcaSimulatedAttester` | Pure Rust | Builds a CCA token from JSON claims and JWK keys with ES384 COSE_Sign1 signatures. Emits draft-ffm-03 framing (CBOR tag 907 CMW collection, 2024 profiles) by default; the legacy draft-01 framing (CBOR tag 399, 2023 profiles) is available via `CcaTokenFormat::Draft01`. No hardware needed. |
 | `ratsd` | `RatsdAttester` | RATSD daemon | Posts a challenge to a RATSD daemon and returns the raw token bytes (COSE_Sign1-wrapped CMW collection, CBOR). No TEE-specific parsing. |
 
 > **Note:** The `cca-ratsd` and `ratsd` attesters require
@@ -33,12 +33,24 @@ let evidence = attester.get_evidence(&challenge).unwrap();
 let attester = cca::CcaTsmAttester::default();
 let evidence = attester.get_evidence(&challenge).unwrap();
 
-// Simulated attester - builds a token from JSON claims and JWK keys (no hardware needed)
-let claims_json = std::fs::read_to_string("test-data/cca-claims.json").unwrap();
+// Simulated attester - builds a draft-ffm-03 token (CBOR tag 907 CMW
+// collection, 2024 profiles) from JSON claims and JWK keys (no hardware needed)
+let claims_json = std::fs::read_to_string("test-data/cca-claims-2024.json").unwrap();
 let iak_jwk = std::fs::read_to_string("test-data/iak.jwk").unwrap();
 let rak_jwk = std::fs::read_to_string("test-data/rak.jwk").unwrap();
 let attester = cca::CcaSimulatedAttester::new(&claims_json, &iak_jwk, Some(&rak_jwk)).unwrap();
 let evidence = attester.get_evidence(&challenge).unwrap();
+
+// Legacy draft-01 tokens (CBOR tag 399, 2023 profiles) - the claims must
+// match the selected profile era:
+let legacy_claims = std::fs::read_to_string("test-data/cca-claims.json").unwrap();
+let attester = cca::CcaSimulatedAttester::new_with_format(
+    cca::CcaTokenFormat::Draft01,
+    &legacy_claims,
+    &iak_jwk,
+    Some(&rak_jwk),
+)
+.unwrap();
 ```
 
 > **Note:** The library itself does not read environment variables. The
@@ -94,8 +106,14 @@ NO_PROXY=localhost RATSD_URL=http://localhost:8895 \
 NO_PROXY=localhost RATSD_URL=http://localhost:8895 \
   cargo run --example attester -- --attester cca-ratsd --out evidence.cbor --print
 
-# CCA simulated evidence (no hardware needed)
+# CCA simulated evidence (no hardware needed) - draft-ffm-03 default
+# (CBOR tag 907 CMW collection, 2024-profile claims)
 cargo run --example attester -- --attester cca-sim --out evidence.cbor
+
+# CCA simulated evidence in the legacy draft-01 framing (CBOR tag 399) -
+# the claims must use the 2023 profiles
+CCA_CLAIMS_FILE=test-data/cca-claims.json CCA_TOKEN_FORMAT=draft-01 \
+  cargo run --example attester -- --attester cca-sim --out legacy-evidence.cbor
 
 # CCA evidence via TSM (requires CCA hardware and root)
 sudo cargo run --example tsm -- --out tsm-evidence.cbor
@@ -112,14 +130,22 @@ sudo cargo run --example tsm -- --out tsm-evidence.cbor
 
 Set `RUST_LOG=info` to see progress logs from the attester.
 
+The `cca-sim` example reads `CCA_CLAIMS_FILE` (default
+`test-data/cca-claims-2024.json`), `CCA_IAK_FILE`, and the optional
+`CCA_RAK_FILE`. `CCA_TOKEN_FORMAT=draft-01` selects the legacy draft-01
+framing (pair it with 2023-profile claims such as `test-data/cca-claims.json`);
+any other value - or unset - uses the draft-ffm-03 default.
+
 ## Utilities
 
 `regl::attesters::cca::utils` provides CCA evidence encoding, decoding, and pretty-printing:
 
-- `regl::attesters::cca::utils::encode_cca_token()` - build a CCA token (CBOR tag 399) from typed claims and signing keys
-- `regl::attesters::cca::utils::decode_cca_token()` - decode raw CBOR evidence to typed Rust structs (`CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent`)
+- `regl::attesters::cca::utils::encode_cca_token_legacy()` - build a legacy CCA token (CBOR tag 399, draft-ffm-rats-cca-token-01 / 2023 profiles) from typed claims and signing keys
+- `regl::attesters::cca::utils::encode_cca_token()` - build the default draft-ffm-03 CCA token (CBOR tag 907 CMW collection, 2024 profiles) from typed claims and signing keys
+- `regl::attesters::cca::utils::CcaTokenFormat` - token framing selector: `Draft03` (default; CBOR tag 907, 2024 profiles) or `Draft01` (legacy; CBOR tag 399, 2023 profiles). The simulated attester emits `Draft03` by default; select `Draft01` via `CcaSimulatedAttester::new_with_format` / `with_keys_and_format`
+- `regl::attesters::cca::utils::decode_cca_token()` - decode raw CBOR evidence to typed Rust structs (`CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent`); accepts both the CBOR tag 399 collection (draft-ffm-rats-cca-token-01, 2023 profiles) and the CBOR tag 907 CMW collection (draft-ffm-03, 2024 profiles)
 - `regl::attesters::cca::utils::pretty_print_token()` - decode and serialize a CCA token as indented JSON
-- `CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent` - serde-enabled CCA evidence structs with human-readable field names
+- `CcaToken`, `PlatformClaims`, `RealmClaims`, `SwComponent`, `ExtensionDevice`, `TbbRotpkItem` - serde-enabled CCA evidence structs with human-readable field names (the draft-ffm-03 / 2024 profile claims - `client-id`, `mec-policy`, realm `instance-id`, extension devices, TBB RoTPK entries, ... - are optional fields, absent for draft-01 tokens). A TBB RoTPK entry carries `name`, `index` and `hash`; the removed `active-array-index` field is no longer accepted. An extension device's `hash-algo-id`, when present, must be `sha-256`, `sha-384` or `sha-512`.
 
 ## License
 

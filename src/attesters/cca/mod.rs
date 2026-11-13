@@ -15,10 +15,14 @@ mod simulated;
 
 pub use ratsd::CcaRatsdAttester;
 pub use simulated::CcaSimulatedAttester;
+pub use utils::CcaTokenFormat;
 
 /// Arm CCA nonce size in bytes, as required by the CCA specification
 /// (https://datatracker.ietf.org/doc/draft-ffm-rats-cca-token/).
 const NONCE_SIZE: usize = 64;
+
+/// configfs-tsm provider a CCA TSM report must come from.
+const CCA_TSM_PROVIDER: &str = "arm_cca_guest";
 
 #[derive(Debug, Default)]
 pub struct CcaTsmAttester {}
@@ -34,9 +38,20 @@ impl Attester for CcaTsmAttester {
             )));
         }
         let builder = LinuxTsmReportBuilder::create()?;
+        // A configfs-tsm report from a non-CCA provider (SEV-SNP, TDX, ...)
+        // is not CCA evidence and must not be treated as such (NT_47).
+        ensure_cca_provider(&builder.provider())?;
         let challenge = challenge.to_vec();
         Ok(get_tsm_report(builder, challenge)?.outblob)
     }
+}
+
+/// Reject configfs-tsm providers other than Arm CCA.
+fn ensure_cca_provider(provider: &str) -> Result<()> {
+    if provider != CCA_TSM_PROVIDER {
+        return Err(CcaError::UnsupportedProvider(provider.to_string()));
+    }
+    Ok(())
 }
 
 fn get_tsm_report<B>(generator: B, inblob: Vec<u8>) -> Result<TsmReport>
@@ -50,6 +65,9 @@ where
 pub enum CcaError {
     #[error("TSM error")]
     Tsm(#[from] TsmError),
+
+    #[error("unsupported TSM provider: {0} (expected arm_cca_guest)")]
+    UnsupportedProvider(String),
 
     #[error("invalid nonce: {0}")]
     InvalidNonce(String),
@@ -141,6 +159,24 @@ mod tests {
         let err = CcaError::Tsm(TsmError::Unsupported);
         let msg = format!("{err}");
         assert!(msg.contains("TSM error"));
+    }
+
+    // --- configfs-tsm provider validation ---
+
+    #[test]
+    fn cca_provider_is_accepted() {
+        assert!(ensure_cca_provider("arm_cca_guest").is_ok());
+    }
+
+    #[test]
+    fn non_cca_provider_is_rejected_with_its_name() {
+        let err = ensure_cca_provider("tdx_guest").unwrap_err();
+        assert!(matches!(err, CcaError::UnsupportedProvider(_)));
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("tdx_guest") && msg.contains("arm_cca_guest"),
+            "msg was: {msg}"
+        );
     }
 
     #[test]
